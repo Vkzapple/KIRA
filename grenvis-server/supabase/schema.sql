@@ -30,6 +30,10 @@ create table if not exists public.telemetry (
   aux_angle    int,
   motor        int,
   motor_target int,
+  motor_left   int,
+  motor_right  int,
+  motor_left_target  int,
+  motor_right_target int,
   cam_online   boolean not null default false,
   cam_armed    boolean not null default false,
   cam_busy     boolean not null default false,
@@ -47,8 +51,12 @@ create index if not exists telemetry_device_time_idx
 -- Migrasi untuk database yang dibuat sebelum kolom motor ada.
 alter table public.telemetry add column if not exists motor int;
 alter table public.telemetry add column if not exists motor_target int;
+alter table public.telemetry add column if not exists motor_left int;
+alter table public.telemetry add column if not exists motor_right int;
+alter table public.telemetry add column if not exists motor_left_target int;
+alter table public.telemetry add column if not exists motor_right_target int;
 
--- Modul HW-039 adalah driver motor BTS7960, bukan sensor hujan.
+-- Modul L298N adalah driver 2 motor DC (kanal A = kiri, kanal B = kanan), bukan sensor hujan.
 -- Kolom rain_pct/rain_raw/rain_wet tidak dipakai lagi. Database lama boleh
 -- membersihkannya secara manual (opsional, data lama akan hilang):
 -- alter table public.telemetry drop column if exists rain_pct;

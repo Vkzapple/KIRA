@@ -32,10 +32,18 @@ export interface RobotTelemetry {
   sync: number;
   /** Sudut servo CH2 (independen). */
   aux: number;
-  /** Duty motor BTS7960: positif maju, negatif mundur, 0 berhenti. */
+  /** Duty motor L298N kiri: positif maju, negatif mundur, 0 berhenti. */
   motor?: number;
-  /** Target duty yang sedang dituju motor. */
+  /** Target duty yang sedang dituju motor kiri. */
   motorTarget?: number;
+  /** Duty motor L298N kiri (kanal A). */
+  motorLeft?: number;
+  /** Duty motor L298N kanan (kanal B). */
+  motorRight?: number;
+  /** Target duty motor kiri. */
+  motorLeftTarget?: number;
+  /** Target duty motor kanan. */
+  motorRightTarget?: number;
   camOnline: boolean;
   camArmed: boolean;
   camBusy: boolean;

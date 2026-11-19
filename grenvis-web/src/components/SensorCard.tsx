@@ -19,7 +19,7 @@ function Bar({ value, tone }: { value: number; tone: string }) {
   );
 }
 
-/** Kartu ringkas kondisi sensor: kelembapan tanah, driver motor HW-039, dan status kamera. */
+/** Kartu ringkas kondisi sensor: kelembapan tanah, driver motor L298N, dan status kamera. */
 export default function SensorCard() {
   const [data, setData] = useState<RobotTelemetry | null>(null);
   const [offline, setOffline] = useState(false);
@@ -58,16 +58,23 @@ export default function SensorCard() {
   if (!API_URL) return null;
 
   const soil = data?.soil ?? 0;
-  const motor = data?.motor ?? 0;
-  const motorTarget = data?.motorTarget ?? 0;
-  const motorDuty = Math.min(255, Math.abs(motor));
+  const left = data?.motorLeft ?? data?.motor ?? 0;
+  const right = data?.motorRight ?? data?.motor ?? 0;
+  const leftTarget = data?.motorLeftTarget ?? data?.motorTarget ?? 0;
+  const rightTarget = data?.motorRightTarget ?? data?.motorTarget ?? 0;
+  const motorDuty = Math.min(255, Math.max(Math.abs(left), Math.abs(right)));
+  const signed = (value: number) => `${value > 0 ? "+" : ""}${value}`;
   const motorText = !data
     ? "—"
-    : motor > 0
-      ? `Maju ${motor}`
-      : motor < 0
-        ? `Mundur ${Math.abs(motor)}`
-        : "Berhenti";
+    : left === 0 && right === 0
+      ? "Berhenti"
+      : left > 0 && right < 0
+        ? "Belok kanan"
+        : left < 0 && right > 0
+          ? "Belok kiri"
+          : left >= 0 && right >= 0
+            ? `Maju ${Math.max(left, right)}`
+            : `Mundur ${Math.max(Math.abs(left), Math.abs(right))}`;
 
   return (
     <section
@@ -119,7 +126,7 @@ export default function SensorCard() {
         <div className="rounded-2xl border border-white/5 bg-ink/40 p-4">
           <dt className="flex items-center gap-1.5 text-sm text-cream/50">
             <Cog className="size-4 text-olive-300" aria-hidden="true" />
-            Driver motor HW-039
+            Driver motor L298N
           </dt>
           <dd className="mt-1 font-display text-3xl font-bold text-cream">
             {motorText}
@@ -127,13 +134,14 @@ export default function SensorCard() {
           <Bar
             value={(motorDuty / 255) * 100}
             tone={
-              motor < 0
+              left < 0 || right < 0
                 ? "bg-gradient-to-r from-alert/70 to-alert"
                 : "bg-gradient-to-r from-olive-500 to-olive-300"
             }
           />
           <p className="mt-2 text-xs text-cream/50">
-            BTS7960 &middot; PWM {data ? `${motorDuty}/255` : "—"}
+            L298N &middot; 2 motor &middot; L {data ? signed(left) : "—"} / R{" "}
+            {data ? signed(right) : "—"}
           </p>
         </div>
       </dl>
@@ -153,9 +161,11 @@ export default function SensorCard() {
         </div>
         <div>
           <div className="font-mono text-sm font-semibold text-cream">
-            {data ? `${motorTarget > 0 ? "+" : ""}${motorTarget}` : "—"}
+            {data
+              ? `${signed(leftTarget)} / ${signed(rightTarget)}`
+              : "—"}
           </div>
-          Target motor
+          Target kiri / kanan
         </div>
         <div>
           <div className="flex items-center justify-center gap-1 font-semibold text-cream">

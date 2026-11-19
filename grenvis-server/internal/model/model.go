@@ -4,20 +4,24 @@ import "time"
 
 // Telemetry adalah kondisi terakhir robot (dikirim ESP32 Dev tiap ~2 detik).
 type Telemetry struct {
-	DeviceID    string    `json:"deviceId,omitempty"`
-	Soil        int       `json:"soil"`
-	SoilRaw     int       `json:"soilRaw"`
-	Sync        int       `json:"sync"`
-	Aux         int       `json:"aux"`
-	Motor       int       `json:"motor"`
-	MotorTarget int       `json:"motorTarget,omitempty"`
-	CamOnline   bool      `json:"camOnline"`
-	CamArmed    bool      `json:"camArmed"`
-	CamBusy     bool      `json:"camBusy"`
-	CamTarget   string    `json:"camTarget"`
-	RSSI        int       `json:"rssi"`
-	Uptime      int64     `json:"uptime"`
-	CreatedAt   time.Time `json:"createdAt"`
+	DeviceID         string    `json:"deviceId,omitempty"`
+	Soil             int       `json:"soil"`
+	SoilRaw          int       `json:"soilRaw"`
+	Sync             int       `json:"sync"`
+	Aux              int       `json:"aux"`
+	Motor            int       `json:"motor"`
+	MotorTarget      int       `json:"motorTarget,omitempty"`
+	MotorLeft        int       `json:"motorLeft"`
+	MotorRight       int       `json:"motorRight"`
+	MotorLeftTarget  int       `json:"motorLeftTarget"`
+	MotorRightTarget int       `json:"motorRightTarget"`
+	CamOnline        bool      `json:"camOnline"`
+	CamArmed         bool      `json:"camArmed"`
+	CamBusy          bool      `json:"camBusy"`
+	CamTarget        string    `json:"camTarget"`
+	RSSI             int       `json:"rssi"`
+	Uptime           int64     `json:"uptime"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 // Detection adalah satu kejadian deteksi objek oleh Roboflow.

@@ -7,7 +7,7 @@ import type { MoveDir } from "@/lib/types";
 
 interface Props {
   onMove: (dir: MoveDir, speed?: number) => void;
-  /** Satu modul BTS7960 tidak bisa berbelok; sumbu X dinonaktifkan. */
+  /** Dua motor L298N: sumbu X untuk belok kiri/kanan (pivot). */
   turnEnabled?: boolean;
   maxSpeed?: number;
 }
@@ -228,7 +228,7 @@ export default function AnalogStick({
         </p>
         {!turnEnabled && (
           <p className="mt-1 max-w-56 text-xs text-cream/50">
-            Belok belum aktif: butuh modul BTS7960 kedua.
+            Belok nonaktif.
           </p>
         )}
       </div>

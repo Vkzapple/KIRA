@@ -143,7 +143,7 @@ export default function HomePage() {
                   Motor
                 </dt>
                 <dd className="mt-1.5 font-display text-base font-semibold text-cream">
-                  BTS7960
+                  L298N · 2 motor
                 </dd>
               </div>
             </dl>

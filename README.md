@@ -4,7 +4,7 @@ Sistem pemantauan tanaman dan kendali robot:
 
 - **Website** (Next.js + TypeScript) untuk melihat foto/sensor dan mengirim perintah.
 - **Backend** (Go + chi) sebagai satu-satunya WebSocket hub, penyimpan riwayat, dan jembatan ke Supabase.
-- **ESP32 Dev** menggerakkan 3 servo lewat PCA9685, 1 motor lewat modul driver **HW-039 / BTS7960**, membaca soil moisture, mengirim telemetry.
+- **ESP32 Dev** menggerakkan 3 servo lewat PCA9685, 2 motor lewat modul driver **L298N**, membaca soil moisture, mengirim telemetry.
 - **ESP32-CAM** memindai objek via Roboflow dan hanya menyimpan foto saat target terdeteksi.
 
 ```
@@ -114,6 +114,8 @@ Device mengirim token lewat header `X-Device-Token` (HTTP) atau query `?token=` 
 
    > Kalau log backend menampilkan `PGRST205 Could not find the table 'public.telemetry'`,
    > berarti skrip ini belum dijalankan di project Supabase yang dipakai `.env`.
+   > Skrip aman dijalankan ulang; bagian migrasi akan menambahkan kolom baru
+   > seperti `motor_left` dan `motor_right` untuk telemetry 2 motor.
 3. Buka **Project Settings → API**, salin:
    - **Project URL** → `SUPABASE_URL`
    - **service_role key** → `SUPABASE_SERVICE_ROLE_KEY` (jangan pernah dipakai di frontend)
@@ -196,27 +198,35 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 #define SYNC_B_OFFSET  0        // geser sudut (derajat), misal 5
 ```
 
-### Modul HW-039 = driver motor BTS7960 (1 modul)
+### Modul L298N = driver 2 motor DC
 
-> **HW-039 adalah kode PCB modul driver motor BTS7960, bukan sensor hujan.**
+> **L298N adalah modul H-bridge 2 kanal.**
+> Kanal A (ENA/IN1/IN2) → motor kiri, kanal B (ENB/IN3/IN4) → motor kanan.
 > Node ini tidak memakai sensor hujan.
 
-| BTS7960 | ESP32 Dev / supply | Catatan |
+| L298N | ESP32 Dev / supply | Catatan |
 |---|---|---|
-| VCC (logic) | 3V3 | logic 3.3V aman |
-| GND (logic) | GND | **GND harus sama dengan supply motor** |
-| R_EN | 3V3 | enable kanan (aktif HIGH) |
-| L_EN | 3V3 | enable kiri (aktif HIGH) |
-| RPWM | **GPIO 26** | PWM maju, 20 kHz |
-| LPWM | **GPIO 27** | PWM mundur, 20 kHz |
-| B+ / B− | supply motor | misal 12V; **jangan** dari ESP32 |
-| M+ / M− | motor DC | 1 modul = 1 motor |
+| ENA | **GPIO 26** | PWM kecepatan motor kiri, 20 kHz |
+| IN1 | **GPIO 27** | arah motor kiri |
+| IN2 | **GPIO 25** | arah motor kiri |
+| ENB | **GPIO 33** | PWM kecepatan motor kanan, 20 kHz |
+| IN3 | **GPIO 32** | arah motor kanan |
+| IN4 | **GPIO 16** | arah motor kanan |
+| GND | GND | **GND harus sama dengan supply motor** |
+| +12V | supply motor | 7–12V; **jangan** dari ESP32 |
+| OUT1 / OUT2 | motor kiri | kanal A |
+| OUT3 / OUT4 | motor kanan | kanal B |
+| 5V | — | hanya untuk logic; **jangan** dipakai memberi daya ESP32 |
 
-- `move forward` → RPWM naik, `move backward` → LPWM naik, `move stop` → keduanya 0.
-- `move left`/`move right` **tidak menggerakkan apa pun** karena butuh modul BTS7960 kedua (atau servo kemudi). Tombol belok di web otomatis dinonaktifkan.
-- Firmware sudah punya ramp 300 ms dan jeda 120 ms saat balik arah, serta otomatis stop kalau WiFi/backend putus.
+- **Lepas jumper ENA dan ENB** di modul L298N supaya PWM dari ESP32 benar-benar mengatur kecepatan. Kalau jumper dibiarkan, motor akan selalu berputar penuh.
+- Jumper 5V onboard L298N: biarkan terpasang kalau supply motor 7–12V. Kalau supply >12V, lepas jumper dan beri 5V eksternal ke pin 5V.
+- Logic L298N umumnya terbaca dari 3.3V ESP32 (ambang HIGH ±2.3V). Kalau arah motor tidak stabil, tambahkan level shifter 3.3V→5V.
+- `move forward` → kedua motor maju. `move backward` → kedua motor mundur. `move stop` → ENA/ENB 0 dan semua IN LOW (coast).
+- `move left` → motor kiri mundur + motor kanan maju (pivot kiri). `move right` → motor kiri maju + motor kanan mundur (pivot kanan). Belok sekarang aktif di tuas web.
+- Firmware punya ramp 300 ms dan jeda 120 ms saat balik arah **per motor**, serta otomatis stop kalau WiFi/backend putus.
 - Penyesuaian kecepatan: `#define MOTOR_SPEED 180` (0–255) dan `#define MOTOR_RAMP_MS 300`.
-- Kalau motor berputar kebalik, tukar kabel `M+`/`M−` (jangan balik polaritas supply).
+- Kalau satu sisi berputar kebalik, set `MOTOR_LEFT_INVERT` / `MOTOR_RIGHT_INVERT` menjadi `1`, atau tukar kabel `OUT` sisi tersebut.
+- L298N punya drop tegangan ±1.5–2V, jadi motor 12V akan menerima tegangan lebih rendah. Dua motor butuh supply lebih besar (minimal 2 A, sesuaikan dengan motor).
 
 ### Sensor
 
@@ -228,7 +238,7 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 
 - GPIO 34 hanya input, tanpa pull-up — memang untuk ADC.
 - Gunakan **ADC1** (32–39) karena ADC2 tidak bisa dipakai saat WiFi aktif.
-- Tidak ada sensor hujan pada node ini. Modul HW-039 sudah dipakai sebagai driver motor BTS7960.
+- Tidak ada sensor hujan pada node ini. Modul L298N dipakai sebagai driver 2 motor DC.
 
 ---
 
@@ -336,9 +346,9 @@ Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan
 2. Nyalakan ESP32 Dev → Serial menampilkan `[WS] backend terhubung`.
 3. Nyalakan ESP32-CAM → konek ke backend yang sama.
 4. Buka website → **Hubungkan robot** → masukkan password.
-5. Beranda menampilkan foto terakhir + kondisi kebun (soil moisture, status driver motor HW-039, status kamera).
+5. Beranda menampilkan foto terakhir + kondisi kebun (soil moisture, status driver motor L298N, status kamera).
 6. Buka **Controller**:
-   - tuas analog untuk maju/mundur dengan kecepatan proporsional (semakin jauh digeser, semakin cepat). Posisi tuas terkunci: motor terus berjalan sampai tombol **Berhenti** ditekan,
+   - tuas analog untuk maju/mundur dan belok kiri/kanan (pivot) dengan kecepatan proporsional (semakin jauh digeser, semakin cepat). Posisi tuas terkunci: motor terus berjalan sampai tombol **Berhenti** ditekan,
    - slider servo PCA9685 untuk kalibrasi (servo sinkron CH0+CH1 dan servo terpisah CH2),
    - probe tanah naik/turun,
    - servo kamera kiri/kanan,
@@ -379,9 +389,10 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 ### Device → server
 
 ```json
-{"type":"hello","deviceId":"grenvis-01-dev","kind":"esp32dev","firmware":"1.1.0","ip":"192.168.1.50"}
+{"type":"hello","deviceId":"grenvis-01-dev","kind":"esp32dev","firmware":"1.3.0","ip":"192.168.1.50"}
 {"type":"telemetry","soil":48,"soilRaw":1980,"sync":90,"aux":90,
- "motor":180,"motorTarget":180,"rssi":-55,"uptime":300}
+ "motor":180,"motorTarget":180,"motorLeft":180,"motorRight":180,
+ "motorLeftTarget":180,"motorRightTarget":180,"rssi":-55,"uptime":300}
 {"type":"ai_status","armed":true,"busy":false,"target":"person"}
 {"type":"detection","class":"person","confidence":0.87,"count":2,"imageUrl":"https://.../foto.jpg"}
 ```
@@ -402,9 +413,10 @@ Status kamera (`camOnline`, `camArmed`, `camBusy`, `camTarget`) hanya ditulis ol
 | Upload foto 401 | `DEVICE_TOKEN` firmware ≠ `.env` backend |
 | Foto tidak muncul | Cek `PUBLIC_BASE_URL` (mode lokal) atau bucket Storage (Supabase) |
 | Servo tidak gerak | V+ PCA9685 belum diberi 5V, GND tidak disatukan, atau alamat I2C bukan 0x40 |
-| Motor tidak berputar | `R_EN`/`L_EN` belum ke 3V3, supply motor (B+/B−) belum diberi daya, atau GND logic vs motor belum disatukan |
-| Motor berputar kebalik | Tukar kabel `M+`/`M−` di modul BTS7960 |
-| Motor diam saat tombol belok | Normal untuk 1 modul; belok butuh modul BTS7960 kedua |
+| Motor tidak berputar | `ENA`/`ENB` belum mendapat PWM, `IN1`–`IN4` tidak berubah, supply motor (+12V) belum diberi daya, GND logic vs motor belum disatukan, atau jumper ENA/ENB masih terpasang |
+| Satu motor berputar kebalik | Set `MOTOR_LEFT_INVERT` / `MOTOR_RIGHT_INVERT` ke `1`, atau tukar kabel `OUT` sisi tersebut |
+| Robot berputar saat maju | Salah satu motor terbalik; cek `MOTOR_LEFT_INVERT` / `MOTOR_RIGHT_INVERT` atau tukar kabel `OUT` |
+| Belok tidak berfungsi | Pastikan `ENB`/`IN3`/`IN4` terhubung dan jumper `ENB` sudah dilepas |
 | Servo bergetar / reset | Adaptor kurang arus; tambahkan kapasitor 470–1000 µF di V+ |
 | Sensor soil selalu 0/100 | Kalibrasi `SOIL_DRY_RAW`/`SOIL_WET_RAW` belum sesuai |
 | `HTTP -1` di log Roboflow | WiFi lemah / heap habis / API key salah. Pastikan PSRAM Enabled |

@@ -36,20 +36,24 @@ func NewSupabase(base, key, bucket string) *Supabase {
 func (s *Supabase) Mode() string { return "supabase" }
 
 type telemetryRow struct {
-	DeviceID    string `json:"device_id"`
-	SoilPct     int    `json:"soil_pct"`
-	SoilRaw     int    `json:"soil_raw"`
-	SyncAngle   int    `json:"sync_angle"`
-	AuxAngle    int    `json:"aux_angle"`
-	Motor       int    `json:"motor"`
-	MotorTarget int    `json:"motor_target,omitempty"`
-	CamOnline   bool   `json:"cam_online"`
-	CamArmed    bool   `json:"cam_armed"`
-	CamBusy     bool   `json:"cam_busy"`
-	CamTarget   string `json:"cam_target"`
-	RSSI        int    `json:"rssi"`
-	Uptime      int64  `json:"uptime_s"`
-	CreatedAt   string `json:"created_at"`
+	DeviceID         string `json:"device_id"`
+	SoilPct          int    `json:"soil_pct"`
+	SoilRaw          int    `json:"soil_raw"`
+	SyncAngle        int    `json:"sync_angle"`
+	AuxAngle         int    `json:"aux_angle"`
+	Motor            int    `json:"motor"`
+	MotorTarget      int    `json:"motor_target,omitempty"`
+	MotorLeft        int    `json:"motor_left"`
+	MotorRight       int    `json:"motor_right"`
+	MotorLeftTarget  int    `json:"motor_left_target"`
+	MotorRightTarget int    `json:"motor_right_target"`
+	CamOnline        bool   `json:"cam_online"`
+	CamArmed         bool   `json:"cam_armed"`
+	CamBusy          bool   `json:"cam_busy"`
+	CamTarget        string `json:"cam_target"`
+	RSSI             int    `json:"rssi"`
+	Uptime           int64  `json:"uptime_s"`
+	CreatedAt        string `json:"created_at"`
 }
 
 type snapshotRow struct {
@@ -79,20 +83,24 @@ func (s *Supabase) SaveTelemetry(ctx context.Context, t model.Telemetry) error {
 		t.CreatedAt = time.Now()
 	}
 	row := telemetryRow{
-		DeviceID:    t.DeviceID,
-		SoilPct:     t.Soil,
-		SoilRaw:     t.SoilRaw,
-		SyncAngle:   t.Sync,
-		AuxAngle:    t.Aux,
-		Motor:       t.Motor,
-		MotorTarget: t.MotorTarget,
-		CamOnline:   t.CamOnline,
-		CamArmed:    t.CamArmed,
-		CamBusy:     t.CamBusy,
-		CamTarget:   t.CamTarget,
-		RSSI:        t.RSSI,
-		Uptime:      t.Uptime,
-		CreatedAt:   t.CreatedAt.UTC().Format(time.RFC3339Nano),
+		DeviceID:         t.DeviceID,
+		SoilPct:          t.Soil,
+		SoilRaw:          t.SoilRaw,
+		SyncAngle:        t.Sync,
+		AuxAngle:         t.Aux,
+		Motor:            t.Motor,
+		MotorTarget:      t.MotorTarget,
+		MotorLeft:        t.MotorLeft,
+		MotorRight:       t.MotorRight,
+		MotorLeftTarget:  t.MotorLeftTarget,
+		MotorRightTarget: t.MotorRightTarget,
+		CamOnline:        t.CamOnline,
+		CamArmed:         t.CamArmed,
+		CamBusy:          t.CamBusy,
+		CamTarget:        t.CamTarget,
+		RSSI:             t.RSSI,
+		Uptime:           t.Uptime,
+		CreatedAt:        t.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	_, err := s.postJSON(ctx, "/rest/v1/telemetry", row, "return=minimal")
 	return err
@@ -219,7 +227,7 @@ func (s *Supabase) ListTelemetry(ctx context.Context, limit int) ([]model.Teleme
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	q := "/rest/v1/telemetry?select=device_id,soil_pct,soil_raw,sync_angle,aux_angle,motor,motor_target,cam_online,cam_armed,cam_busy,cam_target,rssi,uptime_s,created_at&order=created_at.desc&limit=" + fmt.Sprint(limit)
+	q := "/rest/v1/telemetry?select=device_id,soil_pct,soil_raw,sync_angle,aux_angle,motor,motor_target,motor_left,motor_right,motor_left_target,motor_right_target,cam_online,cam_armed,cam_busy,cam_target,rssi,uptime_s,created_at&order=created_at.desc&limit=" + fmt.Sprint(limit)
 	body, err := s.get(ctx, q)
 	if err != nil {
 		return nil, err
@@ -231,20 +239,24 @@ func (s *Supabase) ListTelemetry(ctx context.Context, limit int) ([]model.Teleme
 	out := make([]model.Telemetry, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, model.Telemetry{
-			DeviceID:    r.DeviceID,
-			Soil:        r.SoilPct,
-			SoilRaw:     r.SoilRaw,
-			Sync:        r.SyncAngle,
-			Aux:         r.AuxAngle,
-			Motor:       r.Motor,
-			MotorTarget: r.MotorTarget,
-			CamOnline:   r.CamOnline,
-			CamArmed:    r.CamArmed,
-			CamBusy:     r.CamBusy,
-			CamTarget:   r.CamTarget,
-			RSSI:        r.RSSI,
-			Uptime:      r.Uptime,
-			CreatedAt:   parseTime(r.CreatedAt),
+			DeviceID:         r.DeviceID,
+			Soil:             r.SoilPct,
+			SoilRaw:          r.SoilRaw,
+			Sync:             r.SyncAngle,
+			Aux:              r.AuxAngle,
+			Motor:            r.Motor,
+			MotorTarget:      r.MotorTarget,
+			MotorLeft:        r.MotorLeft,
+			MotorRight:       r.MotorRight,
+			MotorLeftTarget:  r.MotorLeftTarget,
+			MotorRightTarget: r.MotorRightTarget,
+			CamOnline:        r.CamOnline,
+			CamArmed:         r.CamArmed,
+			CamBusy:          r.CamBusy,
+			CamTarget:        r.CamTarget,
+			RSSI:             r.RSSI,
+			Uptime:           r.Uptime,
+			CreatedAt:        parseTime(r.CreatedAt),
 		})
 	}
 	return out, nil

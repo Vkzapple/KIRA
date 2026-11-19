@@ -140,13 +140,13 @@ export default function ControllerPage() {
                 Gerak robot
               </h2>
               <span className="rounded-full border border-white/10 bg-ink/50 px-2.5 py-1 font-mono text-[10px] font-semibold text-cream/50">
-                BTS7960
+                L298N · 2 motor
               </span>
             </div>
-            <AnalogStick onMove={onMove} turnEnabled={false} />
+            <AnalogStick onMove={onMove} />
             <p className="text-center text-xs leading-relaxed text-cream/50">
-              Satu modul BTS7960: maju/mundur dengan kecepatan proporsional.
-              Belok butuh modul kedua.
+              Dua motor L298N: maju/mundur dan belok kiri/kanan (pivot).
+              Kecepatan mengikuti seberapa jauh tuas digeser.
             </p>
           </section>
 

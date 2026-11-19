@@ -5,9 +5,11 @@
      1. PCA9685 (I2C) menggerakkan 3 servo:
           CH0 + CH1 -> servo SINKRON (arah sama, bisa di-invert/di-offset)
           CH2       -> servo TERPISAH (independen)
-     2. Modul HW-039 = driver motor BTS7960 (1 modul) untuk roda/mekanisme:
-          RPWM/LPWM -> PWM 20 kHz, arah maju/mundur
-        HW-039 BUKAN sensor hujan. Tidak ada sensor hujan di node ini.
+     2. Modul L298N (H-bridge) untuk 2 motor (kiri + kanan):
+          Kanal A: ENA + IN1/IN2 -> motor kiri
+          Kanal B: ENB + IN3/IN4 -> motor kanan
+          Maju/mundur + belok pivot kiri/kanan
+        Tidak ada sensor hujan di node ini.
      3. Sensor soil moisture (analog, ADC1)
      4. Konek ke backend GRENVIS (Go) lewat WebSocket sebagai device:
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
@@ -44,7 +46,7 @@
 #define DEVICE_TOKEN  "change-me-device-token"   // harus sama dengan .env backend
 #define DEVICE_ID     "grenvis-01-dev"
 #define DEVICE_NAME   "GRENVIS Dev"
-#define FIRMWARE_VER  "1.1.0"
+#define FIRMWARE_VER  "1.3.0"
 
 // ---- Pin ----
 #define PIN_SDA      21
@@ -75,17 +77,25 @@
 #define SOIL_DRY_RAW        2600
 #define SOIL_WET_RAW        1100
 
-// ---- Modul HW-039: driver motor BTS7960 (1 modul) ----
-// R_EN dan L_EN dihubungkan ke 3V3. B+ / B- ke supply motor, GND disatukan.
-#define PIN_MOTOR_RPWM   26
-#define PIN_MOTOR_LPWM   27
-#define MOTOR_PWM_FREQ   20000    // 20 kHz, di atas ambang dengar
+// ---- Modul L298N: driver 2 motor DC (kanal A = kiri, kanal B = kanan) ----
+// ENA/ENB = PWM kecepatan, IN1..IN4 = arah. GND logic dan supply motor disatukan.
+// Lepas jumper ENA dan ENB supaya PWM dari ESP32 benar-benar mengatur kecepatan.
+// Jumper 5V onboard L298N hanya untuk supply logic; jangan memberi daya ESP32.
+#define PIN_MOTOR_LEFT_ENA    26
+#define PIN_MOTOR_LEFT_IN1    27
+#define PIN_MOTOR_LEFT_IN2    25
+#define PIN_MOTOR_RIGHT_ENA   33
+#define PIN_MOTOR_RIGHT_IN1   32
+#define PIN_MOTOR_RIGHT_IN2   16
+#define MOTOR_LEFT_INVERT     0       // 1 = balik arah motor kiri
+#define MOTOR_RIGHT_INVERT    0       // 1 = balik arah motor kanan
+#define MOTOR_PWM_FREQ   20000    // 20 kHz, di atas ambang dengar (L298N maks. 40 kHz)
 #define MOTOR_PWM_BITS   8        // duty 0..255
 #define MOTOR_SPEED      180      // kecepatan default (0..255)
 #define MOTOR_RAMP_MS    300      // waktu dari 0 ke duty penuh
 #define MOTOR_DEADTIME_MS 120     // jeda saat balik arah
-#define CH_MOTOR_RPWM    4        // kanal LEDC (core 2.x)
-#define CH_MOTOR_LPWM    5
+#define CH_MOTOR_LEFT_ENA     4        // kanal LEDC (core 2.x)
+#define CH_MOTOR_RIGHT_ENA    5
 
 #define TELEMETRY_MS   2000
 
@@ -103,11 +113,15 @@ int soilPct = 0;
 bool backendUp = false;
 uint32_t lastTelemetry = 0;
 
-// Motor BTS7960: nilai -255..255 (negatif = mundur).
-int      motorTarget   = 0;
-int      motorNow      = 0;
-int      motorApplied  = 0;
-uint32_t motorDeadUntil = 0;
+// Motor L298N: duty -255..255 per sisi (negatif = mundur).
+int      motorLeftTarget   = 0;
+int      motorLeftNow      = 0;
+int      motorLeftApplied  = 0;
+int      motorRightTarget  = 0;
+int      motorRightNow     = 0;
+int      motorRightApplied = 0;
+uint32_t motorLeftDeadUntil  = 0;
+uint32_t motorRightDeadUntil = 0;
 
 /* =========================== PROTOTYPES ============================= */
 
@@ -116,8 +130,7 @@ void updateServos();
 void applyAllServos();
 void initMotor();
 void updateMotor();
-void setMotorTarget(int value);
-void applyMotor(int value);
+void setMotorTargets(int left, int right);
 void stopMotor();
 void handleCommand(const String &msg);
 void sendHello();
@@ -142,7 +155,7 @@ void setup() {
   auxNow  = auxTarget  = SERVO_HOME;
   applyAllServos();
 
-  // Driver motor HW-039 / BTS7960
+  // Driver motor L298N
   initMotor();
 
   // Sensor soil moisture
@@ -292,45 +305,98 @@ void writeMotorPWM(uint8_t pin, uint8_t channel, uint8_t duty) {
 #endif
 }
 
-void initMotor() {
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
-  ledcAttach(PIN_MOTOR_RPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
-  ledcAttach(PIN_MOTOR_LPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
-#else
-  ledcSetup(CH_MOTOR_RPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
-  ledcAttachPin(PIN_MOTOR_RPWM, CH_MOTOR_RPWM);
-  ledcSetup(CH_MOTOR_LPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
-  ledcAttachPin(PIN_MOTOR_LPWM, CH_MOTOR_LPWM);
-#endif
-  motorApplied = 1;   // paksa apply pertama
-  applyMotor(0);
-  Serial.println(F("[MOTOR] HW-039 / BTS7960 siap (RPWM=26, LPWM=27)"));
-}
+void applyMotorChannel(uint8_t in1, uint8_t in2, uint8_t enaPin, uint8_t channel,
+                       int value, int &applied) {
+  if (value == applied) return;
+  applied = value;
 
-// v > 0 maju, v < 0 mundur, 0 berhenti (coast).
-void applyMotor(int v) {
-  if (v == motorApplied) return;
-  motorApplied = v;
-
-  uint8_t forward = v > 0 ? (uint8_t)v : 0;
-  uint8_t reverse = v < 0 ? (uint8_t)(-v) : 0;
-
-  writeMotorPWM(PIN_MOTOR_RPWM, CH_MOTOR_RPWM, forward);
-  writeMotorPWM(PIN_MOTOR_LPWM, CH_MOTOR_LPWM, reverse);
-}
-
-void setMotorTarget(int value) {
-  value = constrain(value, -255, 255);
-
-  int nowSign = (motorNow > 0) - (motorNow < 0);
-  int newSign = (value > 0) - (value < 0);
-  if (nowSign != 0 && newSign != 0 && nowSign != newSign) {
-    // Balik arah: rem dulu, beri jeda supaya H-bridge tidak shoot-through.
-    motorNow = 0;
-    applyMotor(0);
-    motorDeadUntil = millis() + MOTOR_DEADTIME_MS;
+  if (value > 0) {
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+  } else if (value < 0) {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+  } else {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
   }
-  motorTarget = value;
+
+  writeMotorPWM(enaPin, channel, (uint8_t)abs(value));
+}
+
+void applyMotorLeft(int v) {
+#if MOTOR_LEFT_INVERT
+  v = -v;
+#endif
+  applyMotorChannel(PIN_MOTOR_LEFT_IN1, PIN_MOTOR_LEFT_IN2,
+                    PIN_MOTOR_LEFT_ENA, CH_MOTOR_LEFT_ENA, v,
+                    motorLeftApplied);
+}
+
+void applyMotorRight(int v) {
+#if MOTOR_RIGHT_INVERT
+  v = -v;
+#endif
+  applyMotorChannel(PIN_MOTOR_RIGHT_IN1, PIN_MOTOR_RIGHT_IN2,
+                    PIN_MOTOR_RIGHT_ENA, CH_MOTOR_RIGHT_ENA, v,
+                    motorRightApplied);
+}
+
+void initMotor() {
+  pinMode(PIN_MOTOR_LEFT_IN1, OUTPUT);
+  pinMode(PIN_MOTOR_LEFT_IN2, OUTPUT);
+  pinMode(PIN_MOTOR_RIGHT_IN1, OUTPUT);
+  pinMode(PIN_MOTOR_RIGHT_IN2, OUTPUT);
+  digitalWrite(PIN_MOTOR_LEFT_IN1, LOW);
+  digitalWrite(PIN_MOTOR_LEFT_IN2, LOW);
+  digitalWrite(PIN_MOTOR_RIGHT_IN1, LOW);
+  digitalWrite(PIN_MOTOR_RIGHT_IN2, LOW);
+
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(PIN_MOTOR_LEFT_ENA, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+  ledcAttach(PIN_MOTOR_RIGHT_ENA, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+#else
+  ledcSetup(CH_MOTOR_LEFT_ENA, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+  ledcAttachPin(PIN_MOTOR_LEFT_ENA, CH_MOTOR_LEFT_ENA);
+  ledcSetup(CH_MOTOR_RIGHT_ENA, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+  ledcAttachPin(PIN_MOTOR_RIGHT_ENA, CH_MOTOR_RIGHT_ENA);
+#endif
+
+  motorLeftApplied = 1;   // paksa apply pertama
+  motorRightApplied = 1;
+  applyMotorLeft(0);
+  applyMotorRight(0);
+  Serial.println(F("[MOTOR] L298N 2 motor siap (KIRI ENA=26 IN1=27 IN2=25, KANAN ENB=33 IN3=32 IN4=16)"));
+}
+
+int motorSign(int v) {
+  return (v > 0) - (v < 0);
+}
+
+// Atur target kedua motor. Nilai positif = maju, negatif = mundur.
+void setMotorTargets(int left, int right) {
+  left = constrain(left, -255, 255);
+  right = constrain(right, -255, 255);
+
+  int nowLeftSign = motorSign(motorLeftNow);
+  int newLeftSign = motorSign(left);
+  if (nowLeftSign != 0 && newLeftSign != 0 && nowLeftSign != newLeftSign) {
+    // Balik arah: rem dulu, beri jeda supaya H-bridge tidak shoot-through.
+    motorLeftNow = 0;
+    applyMotorLeft(0);
+    motorLeftDeadUntil = millis() + MOTOR_DEADTIME_MS;
+  }
+
+  int nowRightSign = motorSign(motorRightNow);
+  int newRightSign = motorSign(right);
+  if (nowRightSign != 0 && newRightSign != 0 && nowRightSign != newRightSign) {
+    motorRightNow = 0;
+    applyMotorRight(0);
+    motorRightDeadUntil = millis() + MOTOR_DEADTIME_MS;
+  }
+
+  motorLeftTarget = left;
+  motorRightTarget = right;
 }
 
 void updateMotor() {
@@ -338,23 +404,35 @@ void updateMotor() {
   if (millis() - last < 20) return;
   last = millis();
 
-  if ((int32_t)(millis() - motorDeadUntil) < 0) return;
-
   int step = (255 * 20) / MOTOR_RAMP_MS;
   if (step < 1) step = 1;
 
-  if (motorNow < motorTarget) {
-    motorNow = min(motorTarget, motorNow + step);
-  } else if (motorNow > motorTarget) {
-    motorNow = max(motorTarget, motorNow - step);
+  if ((int32_t)(millis() - motorLeftDeadUntil) >= 0) {
+    if (motorLeftNow < motorLeftTarget) {
+      motorLeftNow = min(motorLeftTarget, motorLeftNow + step);
+    } else if (motorLeftNow > motorLeftTarget) {
+      motorLeftNow = max(motorLeftTarget, motorLeftNow - step);
+    }
+    applyMotorLeft(motorLeftNow);
   }
-  applyMotor(motorNow);
+
+  if ((int32_t)(millis() - motorRightDeadUntil) >= 0) {
+    if (motorRightNow < motorRightTarget) {
+      motorRightNow = min(motorRightTarget, motorRightNow + step);
+    } else if (motorRightNow > motorRightTarget) {
+      motorRightNow = max(motorRightTarget, motorRightNow - step);
+    }
+    applyMotorRight(motorRightNow);
+  }
 }
 
 void stopMotor() {
-  motorTarget = 0;
-  motorNow = 0;
-  applyMotor(0);
+  motorLeftTarget = 0;
+  motorRightTarget = 0;
+  motorLeftNow = 0;
+  motorRightNow = 0;
+  applyMotorLeft(0);
+  applyMotorRight(0);
 }
 
 /* ============================== TELEMETRY =========================== */
@@ -370,8 +448,12 @@ void sendTelemetry(bool force) {
   d["soilRaw"]     = soilRaw;
   d["sync"]        = (int)lroundf(syncNow);
   d["aux"]         = (int)lroundf(auxNow);
-  d["motor"]       = motorNow;
-  d["motorTarget"] = motorTarget;
+  d["motorLeft"]      = motorLeftNow;
+  d["motorRight"]     = motorRightNow;
+  d["motorLeftTarget"]  = motorLeftTarget;
+  d["motorRightTarget"] = motorRightTarget;
+  d["motor"]       = motorLeftNow;       // kompatibilitas dashboard lama
+  d["motorTarget"] = motorLeftTarget;
   d["rssi"]        = WiFi.RSSI();
   d["uptime"]      = (uint32_t)(millis() / 1000);
 
@@ -455,21 +537,23 @@ void handleCommand(const String &msg) {
   }
 
   if (!strcmp(type, "move")) {
-    // Satu modul HW-039/BTS7960 = satu motor: maju/mundur/berhenti.
-    // Belok (kiri/kanan) butuh modul kedua atau servo kemudi terpisah.
+    // Dua motor L298N: kiri = kanal A, kanan = kanal B.
+    // Belok dilakukan dengan memutar kedua roda berlawanan arah (pivot).
     const char *dir = doc["dir"] | "";
     int speed = doc["speed"] | MOTOR_SPEED;
     if (speed < 0) speed = 0;
     if (speed > 255) speed = 255;
 
     if (!strcmp(dir, "forward")) {
-      setMotorTarget(speed);
+      setMotorTargets(speed, speed);
     } else if (!strcmp(dir, "backward")) {
-      setMotorTarget(-speed);
+      setMotorTargets(-speed, -speed);
+    } else if (!strcmp(dir, "left")) {
+      setMotorTargets(-speed, speed);
+    } else if (!strcmp(dir, "right")) {
+      setMotorTargets(speed, -speed);
     } else if (!strcmp(dir, "stop")) {
-      setMotorTarget(0);
-    } else if (!strcmp(dir, "left") || !strcmp(dir, "right")) {
-      Serial.println(F("[MOTOR] belok butuh 2 modul HW-039/BTS7960"));
+      setMotorTargets(0, 0);
     }
     return;
   }
