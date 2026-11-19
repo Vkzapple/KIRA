@@ -7,9 +7,6 @@ type Telemetry struct {
 	DeviceID    string    `json:"deviceId,omitempty"`
 	Soil        int       `json:"soil"`
 	SoilRaw     int       `json:"soilRaw"`
-	Rain        int       `json:"rain"`
-	RainRaw     int       `json:"rainRaw"`
-	RainWet     bool      `json:"rainWet"`
 	Sync        int       `json:"sync"`
 	Aux         int       `json:"aux"`
 	Motor       int       `json:"motor"`

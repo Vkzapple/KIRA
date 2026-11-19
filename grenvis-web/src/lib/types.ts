@@ -12,6 +12,7 @@ export type RobotCommand =
   | { type: "move"; dir: MoveDir }
   | { type: "probe"; dir: ProbeDir }
   | { type: "camera"; dir: CameraDir }
+  | { type: "servo"; sync?: number; aux?: number }
   | { type: "ai"; armed: boolean; target?: string }
   | { type: "capture" };
 
@@ -27,15 +28,14 @@ export interface PlantSnapshot {
 export interface RobotTelemetry {
   soil: number;
   soilRaw: number;
-  rain: number;
-  rainRaw: number;
-  rainWet: boolean;
   /** Sudut servo CH0+CH1 (bergerak bersamaan). */
   sync: number;
   /** Sudut servo CH2 (independen). */
   aux: number;
   /** Duty motor BTS7960: positif maju, negatif mundur, 0 berhenti. */
   motor?: number;
+  /** Target duty yang sedang dituju motor. */
+  motorTarget?: number;
   camOnline: boolean;
   camArmed: boolean;
   camBusy: boolean;

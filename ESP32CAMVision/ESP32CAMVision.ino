@@ -11,7 +11,8 @@
         - kirim ai_status + detection
      5. Upload foto ke backend (POST /api/snapshots) supaya tersimpan
         di Supabase Storage dan tampil di website
-     6. HTTP server lokal: /last.jpg, /stream, /status, /trigger
+     6. Tidak ada dashboard/server HTTP di ESP32-CAM. Semua kontrol dan
+        tampilan ada di website GRENVIS lewat backend.
 
    Library:
      - ArduinoJson 7.x
@@ -27,11 +28,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <WebServer.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
-#include <ESPmDNS.h>
-#include <esp_heap_caps.h>
 #include <math.h>
 #include <ctype.h>
 
@@ -61,7 +59,6 @@
 #define AUTO_ARM_ON_BOOT    false      // true = langsung scan otomatis
 #define SCAN_INTERVAL_MS    8000       // jeda antar scan otomatis
 #define SCAN_COOLDOWN_MS    1500       // jeda setelah satu scan selesai
-#define SNAP_MAX_BYTES      (120 * 1024)
 #define UPLOAD_TIMEOUT_MS   15000
 
 // ---- Pin AI Thinker ----
@@ -89,16 +86,11 @@
 
 /* ============================== GLOBAL ============================== */
 
-WebServer       http(80);
 WebSocketsClient backend;
 
-SemaphoreHandle_t snapMtx  = nullptr;
 SemaphoreHandle_t wsMtx    = nullptr;
 SemaphoreHandle_t trigSem  = nullptr;
 portMUX_TYPE      stateMux = portMUX_INITIALIZER_UNLOCKED;
-
-uint8_t *snapBuf = nullptr;
-size_t    snapLen = 0;
 
 volatile bool     armed   = AUTO_ARM_ON_BOOT;
 volatile bool     busy    = false;
@@ -107,17 +99,10 @@ volatile bool     needStatus = false;
 volatile bool     camReady = false;
 volatile uint32_t lastScan = 0;
 volatile uint32_t scanInterval = SCAN_INTERVAL_MS;
-volatile uint32_t lastDetMs = 0;
-volatile float    lastConf = 0;
 
 char targetList[96] = TARGET_DEFAULT;
-char lastClass[32]  = "";
-char lastDetUrl[128] = "";
 
 String wsPath = "";
-
-// Dideklarasikan di bawah, dipakai lebih dulu di setup()
-extern const char CAM_HTML[] PROGMEM;
 
 /* =========================== PROTOTYPES ============================= */
 
@@ -128,18 +113,14 @@ bool roboflowDetect(camera_fb_t *fb, String &bestClass, float &bestConf,
                     int &nPred, bool &matched);
 bool matchesTarget(const String &cls);
 void setTargetList(const char *s);
-void storeSnapshot(camera_fb_t *fb);
 void flashPulse();
 void requestScan();
 void sendStatus();
 bool uploadSnapshot(camera_fb_t *fb, const String &cls, float conf, String &imageUrl);
-String buildStatus();
 String buildAiStatus();
 void handleBackendMessage(const String &msg);
 void handleCamCommand(JsonDocument &doc);
 void startBackend();
-void handleLastJpg();
-void handleStream();
 
 /* ============================== SETUP =============================== */
 
@@ -154,10 +135,8 @@ void setup() {
   pinMode(PIN_LED, OUTPUT);
   digitalWrite(PIN_LED, HIGH);   // LED merah AI Thinker active-low
 
-  snapMtx = xSemaphoreCreateMutex();
   wsMtx   = xSemaphoreCreateMutex();
   trigSem = xSemaphoreCreateCounting(1, 0);
-
   if (!cameraInit()) {
     Serial.println(F("[CAM] init GAGAL, cek koneksi kamera / PSRAM"));
   } else {
@@ -184,38 +163,18 @@ void setup() {
     Serial.println(F("WiFi gagal, auto reconnect aktif"));
   }
 
-  if (MDNS.begin("esp32-cam")) MDNS.addService("http", "tcp", 80);
-
-  // HTTP endpoints lokal
-  http.on("/", HTTP_GET, []() {
-    http.send(200, "text/html", CAM_HTML);
-  });
-  http.on("/status", HTTP_GET, []() {
-    http.send(200, "application/json", buildStatus());
-  });
-  http.on("/last.jpg", HTTP_GET, handleLastJpg);
-  http.on("/stream", HTTP_GET, handleStream);
-  http.on("/trigger", HTTP_GET, []() {
-    requestScan();
-    http.send(200, "text/plain", "queued");
-  });
-  http.onNotFound([]() { http.send(404, "text/plain", "not found"); });
-  http.begin();
-
-  // Backend WebSocket
+  // Backend WebSocket (satu-satunya jalur kontrol & status)
   startBackend();
 
   xTaskCreatePinnedToCore(scanTask, "vision", 16384, nullptr, 1, nullptr, 0);
 
   lastScan = millis() - SCAN_INTERVAL_MS;   // scan cepat setelah boot
-  Serial.println(F("Siap. Endpoint: /last.jpg /stream /status /trigger"));
+  Serial.println(F("Siap. Menunggu koneksi backend..."));
 }
 
 /* =============================== LOOP =============================== */
 
 void loop() {
-  http.handleClient();
-
   if (xSemaphoreTake(wsMtx, pdMS_TO_TICKS(100)) == pdTRUE) {
     backend.loop();
     xSemaphoreGive(wsMtx);
@@ -467,25 +426,12 @@ void runOneScan() {
   bool ok = roboflowDetect(fb, cls, conf, nPred, matched);
 
   if (ok && matched) {
-    storeSnapshot(fb);
     flashPulse();
-
-    portENTER_CRITICAL(&stateMux);
-    strlcpy(lastClass, cls.c_str(), sizeof(lastClass));
-    portEXIT_CRITICAL(&stateMux);
-
-    lastConf = conf;
-    lastDetMs = millis();
 
     // Unggah ke backend -> tersimpan di Supabase Storage / folder data.
     String imageUrl = "";
     if (uploadSnapshot(fb, cls, conf, imageUrl)) {
-      portENTER_CRITICAL(&stateMux);
-      strlcpy(lastDetUrl, imageUrl.c_str(), sizeof(lastDetUrl));
-      portEXIT_CRITICAL(&stateMux);
-    }
-    if (!imageUrl.length()) {
-      imageUrl = "http://" + WiFi.localIP().toString() + "/last.jpg";
+      Serial.printf("[UP] URL %s\n", imageUrl.c_str());
     }
 
     JsonDocument d;
@@ -494,7 +440,7 @@ void runOneScan() {
     d["confidence"] = conf;
     d["count"] = nPred;
     d["ip"] = WiFi.localIP().toString();
-    d["url"] = imageUrl;
+    if (imageUrl.length()) d["imageUrl"] = imageUrl;
     d["ts"] = millis();
 
     String out;
@@ -511,21 +457,6 @@ void runOneScan() {
 }
 
 /* ============================ SNAPSHOT ============================== */
-
-void storeSnapshot(camera_fb_t *fb) {
-  if (!fb || fb->len == 0 || fb->len > SNAP_MAX_BYTES) return;
-  if (xSemaphoreTake(snapMtx, pdMS_TO_TICKS(500)) != pdTRUE) return;
-
-  if (!snapBuf) {
-    snapBuf = (uint8_t *)heap_caps_malloc(SNAP_MAX_BYTES, MALLOC_CAP_SPIRAM);
-    if (!snapBuf) snapBuf = (uint8_t *)malloc(SNAP_MAX_BYTES);
-  }
-  if (snapBuf) {
-    memcpy(snapBuf, fb->buf, fb->len);
-    snapLen = fb->len;
-  }
-  xSemaphoreGive(snapMtx);
-}
 
 bool uploadSnapshot(camera_fb_t *fb, const String &cls, float conf, String &imageUrl) {
   if (!fb || fb->len == 0) return false;
@@ -597,45 +528,6 @@ String buildAiStatus() {
   d["armed"] = (bool)armed;
   d["busy"]  = (bool)busy;
   d["target"] = tgt;
-  String s;
-  serializeJson(d, s);
-  return s;
-}
-
-String buildStatus() {
-  char cls[sizeof(lastClass)];
-  portENTER_CRITICAL(&stateMux);
-  strlcpy(cls, lastClass, sizeof(cls));
-  portEXIT_CRITICAL(&stateMux);
-
-  char tgt[sizeof(targetList)];
-  portENTER_CRITICAL(&stateMux);
-  strlcpy(tgt, targetList, sizeof(tgt));
-  portEXIT_CRITICAL(&stateMux);
-
-  char url[sizeof(lastDetUrl)];
-  portENTER_CRITICAL(&stateMux);
-  strlcpy(url, lastDetUrl, sizeof(url));
-  portEXIT_CRITICAL(&stateMux);
-
-  JsonDocument d;
-  d["type"] = "camStatus";
-  d["ip"] = WiFi.localIP().toString();
-  d["rssi"] = WiFi.RSSI();
-  d["armed"] = (bool)armed;
-  d["busy"] = (bool)busy;
-  d["target"] = tgt;
-  d["interval"] = (uint32_t)scanInterval;
-  d["lastClass"] = cls;
-  d["lastConf"] = (float)lastConf;
-  d["lastDetMs"] = (uint32_t)lastDetMs;
-  d["lastUrl"] = url;
-  d["snapBytes"] = (uint32_t)snapLen;
-  d["heap"] = ESP.getFreeHeap();
-  d["psram"] = psramFound() ? ESP.getFreePsram() : 0;
-  d["uptime"] = (uint32_t)(millis() / 1000);
-  d["ws"] = (bool)wsUp;
-  d["backend"] = BACKEND_HOST;
   String s;
   serializeJson(d, s);
   return s;
@@ -739,92 +631,3 @@ void handleCamCommand(JsonDocument &doc) {
   needStatus = true;
   Serial.printf("[CMD] %s target=%s armed=%d\n", cmd, targetList, (int)armed);
 }
-
-/* ============================ HTTP KAMERA =========================== */
-
-void handleLastJpg() {
-  if (!snapBuf || snapLen == 0) {
-    http.send(404, "text/plain", "belum ada capture");
-    return;
-  }
-  if (xSemaphoreTake(snapMtx, pdMS_TO_TICKS(1000)) != pdTRUE) {
-    http.send(503, "text/plain", "busy");
-    return;
-  }
-
-  size_t n = snapLen;
-  auto &client = http.client();
-  client.print(F("HTTP/1.1 200 OK\r\n"));
-  client.print(F("Content-Type: image/jpeg\r\n"));
-  client.print(F("Content-Length: "));
-  client.print((unsigned)n);
-  client.print(F("\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"));
-  client.write(snapBuf, n);
-  client.flush();
-  client.stop();
-
-  xSemaphoreGive(snapMtx);
-}
-
-void handleStream() {
-  auto &client = http.client();
-  client.print(F("HTTP/1.1 200 OK\r\n"));
-  client.print(F("Content-Type: multipart/x-mixed-replace; boundary=frame\r\n"));
-  client.print(F("Cache-Control: no-store\r\nConnection: close\r\n\r\n"));
-
-  while (client.connected()) {
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-      delay(30);
-      continue;
-    }
-    client.printf("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n",
-                  (unsigned)fb->len);
-    client.write(fb->buf, fb->len);
-    client.print("\r\n");
-    esp_camera_fb_return(fb);
-
-    // Tetap layani WebSocket supaya koneksi ke backend tidak timeout
-    if (xSemaphoreTake(wsMtx, pdMS_TO_TICKS(10)) == pdTRUE) {
-      backend.loop();
-      xSemaphoreGive(wsMtx);
-    }
-
-    delay(60);   // ~15 fps max
-  }
-  client.stop();
-}
-
-/* ============================ HALAMAN =============================== */
-
-const char CAM_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html><html lang="id"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ESP32-CAM</title>
-<style>
-body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:#0f1115;color:#e8eaed;padding:16px}
-h1{font-size:18px;margin:0 0 12px}
-.card{background:#171a21;border:1px solid #242a35;border-radius:14px;padding:14px;max-width:640px}
-img{width:100%;border-radius:10px;background:#000;margin-top:10px}
-pre{font-size:12px;color:#8b93a7;white-space:pre-wrap;word-break:break-word}
-a{color:#4f8cff}
-</style></head><body>
-<h1>ESP32-CAM &middot; Roboflow</h1>
-<div class="card">
-<div><a href="/trigger">Trigger scan</a> &middot; <a href="/status">Status JSON</a> &middot; <a href="/stream">MJPEG stream</a></div>
-<img id="s" src="/last.jpg" alt="capture" onerror="this.style.opacity=.2">
-<pre id="st">memuat...</pre>
-</div>
-<script>
-async function tick(){
-  try{const r=await fetch('/status');const j=await r.json();
-    document.getElementById('st').textContent=
-      `IP ${j.ip} | RSSI ${j.rssi} | armed ${j.armed} | target ${j.target}\n`+
-      `deteksi terakhir: ${j.lastClass||'-'} ${(j.lastConf*100||0).toFixed(0)}% | capture ${j.snapBytes} B\n`+
-      `backend ${j.backend} (${j.ws?'online':'offline'}) | heap ${j.heap} | psram ${j.psram}`;
-    if(j.lastDetMs){const im=document.getElementById('s');im.style.opacity=1;im.src='/last.jpg?t='+Date.now();}
-  }catch(e){}
-}
-tick();setInterval(tick,3000);
-</script></body></html>
-)rawliteral";

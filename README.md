@@ -4,7 +4,7 @@ Sistem pemantauan tanaman dan kendali robot:
 
 - **Website** (Next.js + TypeScript) untuk melihat foto/sensor dan mengirim perintah.
 - **Backend** (Go + chi) sebagai satu-satunya WebSocket hub, penyimpan riwayat, dan jembatan ke Supabase.
-- **ESP32 Dev** menggerakkan 3 servo lewat PCA9685, 1 motor lewat driver BTS7960, membaca soil moisture & HW-039, mengirim telemetry.
+- **ESP32 Dev** menggerakkan 3 servo lewat PCA9685, 1 motor lewat modul driver **HW-039 / BTS7960**, membaca soil moisture, mengirim telemetry.
 - **ESP32-CAM** memindai objek via Roboflow dan hanya menyimpan foto saat target terdeteksi.
 
 ```
@@ -193,7 +193,10 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 #define SYNC_B_OFFSET  0        // geser sudut (derajat), misal 5
 ```
 
-### Driver motor BTS7960 (1 modul)
+### Modul HW-039 = driver motor BTS7960 (1 modul)
+
+> **HW-039 adalah kode PCB modul driver motor BTS7960, bukan sensor hujan.**
+> Node ini tidak memakai sensor hujan.
 
 | BTS7960 | ESP32 Dev / supply | Catatan |
 |---|---|---|
@@ -219,14 +222,10 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 | Soil moisture | VCC | 3V3 |
 | | GND | GND |
 | | AO | **GPIO 34** (ADC1) |
-| HW-039 (rain/drop sensor) | VCC | 3V3 |
-| | GND | GND |
-| | AO | **GPIO 35** (ADC1) |
-| | DO | **GPIO 25** |
 
-- GPIO 34 & 35 hanya input, tanpa pull-up — memang untuk ADC.
+- GPIO 34 hanya input, tanpa pull-up — memang untuk ADC.
 - Gunakan **ADC1** (32–39) karena ADC2 tidak bisa dipakai saat WiFi aktif.
-- Kalau modul HW-039 diberi 5V, output DO-nya 5V. Beri 3.3V saja, atau tambahkan pembagi tegangan.
+- Tidak ada sensor hujan pada node ini. Modul HW-039 sudah dipakai sebagai driver motor BTS7960.
 
 ---
 
@@ -249,16 +248,14 @@ Kalibrasi sensor (lihat Serial Monitor, print tiap 5 detik):
 ```cpp
 #define SOIL_DRY_RAW 2600   // nilai saat sensor di udara
 #define SOIL_WET_RAW 1100   // nilai saat sensor di air
-#define RAIN_DRY_RAW 3800   // HW-039 kering
-#define RAIN_WET_RAW 1200   // HW-039 basah
 ```
 
 Cara kalibrasi:
 1. Upload, buka Serial Monitor **115200**.
-2. Lihat baris `[SENSOR] soil raw=... rain raw=...`.
-3. Catat nilai kering dan basah, masukkan ke 4 define di atas.
+2. Lihat baris `[SENSOR] soil raw=...`.
+3. Catat nilai kering dan basah, masukkan ke 2 define di atas.
 
-Board: **ESP32 Dev Module**. Dashboard lokal tetap tersedia di `http://<ip-dev>/` untuk kalibrasi servo (`/api/servo?sync=90&aux=45`) dan cek sensor.
+Board: **ESP32 Dev Module**. **Tidak ada dashboard/web server lokal di ESP32**; semua kontrol dan tampilan ada di website GRENVIS melalui backend.
 
 ### ESP32-CAM (`ESP32CAMVision.ino`)
 
@@ -336,9 +333,10 @@ Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan
 2. Nyalakan ESP32 Dev → Serial menampilkan `[WS] backend terhubung`.
 3. Nyalakan ESP32-CAM → konek ke backend yang sama.
 4. Buka website → **Hubungkan robot** → masukkan password.
-5. Beranda menampilkan foto terakhir + kondisi kebun (soil, HW-039, status kamera).
+5. Beranda menampilkan foto terakhir + kondisi kebun (soil moisture, status driver motor HW-039, status kamera).
 6. Buka **Controller**:
    - tombol maju/mundur / W-S untuk menggerakkan motor BTS7960,
+   - slider servo PCA9685 untuk kalibrasi (servo sinkron CH0+CH1 dan servo terpisah CH2),
    - probe tanah naik/turun,
    - servo kamera kiri/kanan,
    - **Vision AI**: isi target, klik **Mulai pantau**, atau **Foto + AI sekarang** untuk satu kali scan.
@@ -378,11 +376,11 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 ### Device → server
 
 ```json
-{"type":"hello","deviceId":"grenvis-01-dev","kind":"esp32dev","firmware":"1.0.0","ip":"192.168.1.50"}
-{"type":"telemetry","soil":48,"soilRaw":1980,"rain":0,"rainRaw":3800,
- "rainWet":false,"sync":90,"aux":90,"motor":180,"motorTarget":180,"rssi":-55,"uptime":300}
+{"type":"hello","deviceId":"grenvis-01-dev","kind":"esp32dev","firmware":"1.1.0","ip":"192.168.1.50"}
+{"type":"telemetry","soil":48,"soilRaw":1980,"sync":90,"aux":90,
+ "motor":180,"motorTarget":180,"rssi":-55,"uptime":300}
 {"type":"ai_status","armed":true,"busy":false,"target":"person"}
-{"type":"detection","class":"person","confidence":0.87,"count":2,"url":"https://.../foto.jpg"}
+{"type":"detection","class":"person","confidence":0.87,"count":2,"imageUrl":"https://.../foto.jpg"}
 ```
 
 Status kamera (`camOnline`, `camArmed`, `camBusy`, `camTarget`) hanya ditulis oleh pesan `ai_status` dari CAM. Telemetry dari Dev tidak menimpanya. Kalau CAM putus, backend menandai `camOnline=false` dan menyiarkannya.

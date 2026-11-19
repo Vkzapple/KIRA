@@ -39,9 +39,6 @@ type telemetryRow struct {
 	DeviceID    string `json:"device_id"`
 	SoilPct     int    `json:"soil_pct"`
 	SoilRaw     int    `json:"soil_raw"`
-	RainPct     int    `json:"rain_pct"`
-	RainRaw     int    `json:"rain_raw"`
-	RainWet     bool   `json:"rain_wet"`
 	SyncAngle   int    `json:"sync_angle"`
 	AuxAngle    int    `json:"aux_angle"`
 	Motor       int    `json:"motor"`
@@ -85,9 +82,6 @@ func (s *Supabase) SaveTelemetry(ctx context.Context, t model.Telemetry) error {
 		DeviceID:    t.DeviceID,
 		SoilPct:     t.Soil,
 		SoilRaw:     t.SoilRaw,
-		RainPct:     t.Rain,
-		RainRaw:     t.RainRaw,
-		RainWet:     t.RainWet,
 		SyncAngle:   t.Sync,
 		AuxAngle:    t.Aux,
 		Motor:       t.Motor,
@@ -225,7 +219,7 @@ func (s *Supabase) ListTelemetry(ctx context.Context, limit int) ([]model.Teleme
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	q := "/rest/v1/telemetry?select=device_id,soil_pct,soil_raw,rain_pct,rain_raw,rain_wet,sync_angle,aux_angle,motor,motor_target,cam_online,cam_armed,cam_busy,cam_target,rssi,uptime_s,created_at&order=created_at.desc&limit=" + fmt.Sprint(limit)
+	q := "/rest/v1/telemetry?select=device_id,soil_pct,soil_raw,sync_angle,aux_angle,motor,motor_target,cam_online,cam_armed,cam_busy,cam_target,rssi,uptime_s,created_at&order=created_at.desc&limit=" + fmt.Sprint(limit)
 	body, err := s.get(ctx, q)
 	if err != nil {
 		return nil, err
@@ -240,9 +234,6 @@ func (s *Supabase) ListTelemetry(ctx context.Context, limit int) ([]model.Teleme
 			DeviceID:    r.DeviceID,
 			Soil:        r.SoilPct,
 			SoilRaw:     r.SoilRaw,
-			Rain:        r.RainPct,
-			RainRaw:     r.RainRaw,
-			RainWet:     r.RainWet,
 			Sync:        r.SyncAngle,
 			Aux:         r.AuxAngle,
 			Motor:       r.Motor,

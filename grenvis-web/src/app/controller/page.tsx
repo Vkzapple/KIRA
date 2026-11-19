@@ -10,6 +10,7 @@ import {
   RotateCcw,
   RotateCw,
   ScanEye,
+  SlidersHorizontal,
   Square,
 } from "lucide-react";
 import { useRobot } from "@/context/RobotContext";
@@ -29,6 +30,8 @@ export default function ControllerPage() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [target, setTarget] = useState("person");
   const [aiArmed, setAiArmed] = useState(false);
+  const [syncAngle, setSyncAngle] = useState(90);
+  const [auxAngle, setAuxAngle] = useState(90);
   const connected = status === "connected";
 
   const dispatch = useCallback(
@@ -99,6 +102,59 @@ export default function ControllerPage() {
         </section>
 
         <div className="flex flex-col gap-6">
+          <section className="rounded-2xl border border-forest-900/10 bg-white p-5">
+            <h3 className="flex items-center gap-2 font-display text-lg font-bold text-forest-900">
+              <SlidersHorizontal className="size-5 text-forest-600" aria-hidden="true" />
+              Kalibrasi servo
+            </h3>
+            <p className="mt-1 text-sm text-stone-600">
+              Servo sinkron CH0+CH1 dan servo terpisah CH2 lewat PCA9685.
+              Kalibrasi dilakukan dari web, bukan dari halaman ESP32.
+            </p>
+
+            <label htmlFor="servo-sync" className="mt-4 block text-sm font-medium text-forest-900">
+              Servo sinkron (CH0 + CH1)
+              <span className="ml-2 font-normal text-stone-600">{syncAngle}°</span>
+            </label>
+            <input
+              id="servo-sync"
+              type="range"
+              min={0}
+              max={180}
+              step={1}
+              value={syncAngle}
+              onChange={(e) => setSyncAngle(Number(e.target.value))}
+              onPointerUp={(e) =>
+                dispatch({ type: "servo", sync: Number(e.currentTarget.value) })
+              }
+              onKeyUp={(e) =>
+                dispatch({ type: "servo", sync: Number(e.currentTarget.value) })
+              }
+              className="mt-1 w-full accent-forest-700"
+            />
+
+            <label htmlFor="servo-aux" className="mt-4 block text-sm font-medium text-forest-900">
+              Servo terpisah (CH2)
+              <span className="ml-2 font-normal text-stone-600">{auxAngle}°</span>
+            </label>
+            <input
+              id="servo-aux"
+              type="range"
+              min={0}
+              max={180}
+              step={1}
+              value={auxAngle}
+              onChange={(e) => setAuxAngle(Number(e.target.value))}
+              onPointerUp={(e) =>
+                dispatch({ type: "servo", aux: Number(e.currentTarget.value) })
+              }
+              onKeyUp={(e) =>
+                dispatch({ type: "servo", aux: Number(e.currentTarget.value) })
+              }
+              className="mt-1 w-full accent-forest-700"
+            />
+          </section>
+
           <ServoControl
             title="Servo probe tanah"
             hint="Turunkan probe ke media tanam, angkat kembali setelah selesai."

@@ -1,18 +1,20 @@
 /* =====================================================================
-   ESP32 Dev Module  —  Kontroler Utama (node aktuator + sensor)
+   ESP32 Dev Module  —  Node aktuator + sensor
 
    Fungsi:
      1. PCA9685 (I2C) menggerakkan 3 servo:
           CH0 + CH1 -> servo SINKRON (arah sama, bisa di-invert/di-offset)
           CH2       -> servo TERPISAH (independen)
-     2. Driver motor BTS7960 (1 modul) untuk roda/mekanisme:
+     2. Modul HW-039 = driver motor BTS7960 (1 modul) untuk roda/mekanisme:
           RPWM/LPWM -> PWM 20 kHz, arah maju/mundur
-     3. Sensor soil moisture (analog, ADC1) + modul HW-039 (AO + DO)
+        HW-039 BUKAN sensor hujan. Tidak ada sensor hujan di node ini.
+     3. Sensor soil moisture (analog, ADC1)
      4. Konek ke backend GRENVIS (Go) lewat WebSocket sebagai device:
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
         - kirim telemetry tiap 2 detik
         - terima perintah: move, servo, probe, camera
-     5. Dashboard lokal (HTTP port 80) untuk kalibrasi di lapangan
+     5. Tidak ada dashboard/server HTTP di ESP32. Semua tampilan dan
+        kontrol ada di website GRENVIS lewat backend.
      6. ESP32-CAM konek sendiri ke backend yang sama (lihat sketch CAM)
 
    Library (Library Manager):
@@ -24,12 +26,10 @@
    ===================================================================== */
 
 #include <WiFi.h>
-#include <WebServer.h>
 #include <WebSocketsClient.h>
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 #include <ArduinoJson.h>
-#include <ESPmDNS.h>
 #include <math.h>
 
 /* ============================ KONFIGURASI ============================ */
@@ -44,14 +44,12 @@
 #define DEVICE_TOKEN  "change-me-device-token"   // harus sama dengan .env backend
 #define DEVICE_ID     "grenvis-01-dev"
 #define DEVICE_NAME   "GRENVIS Dev"
-#define FIRMWARE_VER  "1.0.0"
+#define FIRMWARE_VER  "1.1.0"
 
 // ---- Pin ----
 #define PIN_SDA      21
 #define PIN_SCL      22
 #define PIN_SOIL     34   // ADC1, input only
-#define PIN_RAIN_AO  35   // ADC1, input only (HW-039 analog)
-#define PIN_RAIN_DO  25   // digital output HW-039
 
 // ---- PCA9685 ----
 #define PCA_ADDR       0x40
@@ -72,16 +70,13 @@
 // Langkah perintah dari web (derajat)
 #define STEP_SERVO     5
 
-// ---- Kalibrasi ADC (12-bit, 0..4095) ----
+// ---- Kalibrasi soil moisture (12-bit, 0..4095) ----
 // Ukur sendiri: kering di udara, basah di air. Nilai di bawah = contoh umum.
 #define SOIL_DRY_RAW        2600
 #define SOIL_WET_RAW        1100
-#define RAIN_DRY_RAW        3800
-#define RAIN_WET_RAW        1200
-#define RAIN_DO_ACTIVE_LOW  true
 
-// ---- BTS7960 (1 modul) ----
-// R_EN dan L_EN dihubungkan ke 3V3. V+ ke supply motor, GND disatukan.
+// ---- Modul HW-039: driver motor BTS7960 (1 modul) ----
+// R_EN dan L_EN dihubungkan ke 3V3. B+ / B- ke supply motor, GND disatukan.
 #define PIN_MOTOR_RPWM   26
 #define PIN_MOTOR_LPWM   27
 #define MOTOR_PWM_FREQ   20000    // 20 kHz, di atas ambang dengar
@@ -97,14 +92,13 @@
 /* ============================== GLOBAL =============================== */
 
 Adafruit_PWMServoDriver pwm(PCA_ADDR);
-WebServer         http(80);
 WebSocketsClient  backend;
 
 float syncNow = SERVO_HOME, syncTarget = SERVO_HOME;
 float auxNow  = SERVO_HOME, auxTarget  = SERVO_HOME;
 
-int soilRaw = 0, rainRaw = 0, rainDO = HIGH;
-int soilPct = 0, rainPct = 0;
+int soilRaw = 0;
+int soilPct = 0;
 
 bool backendUp = false;
 uint32_t lastTelemetry = 0;
@@ -114,8 +108,6 @@ int      motorTarget   = 0;
 int      motorNow      = 0;
 int      motorApplied  = 0;
 uint32_t motorDeadUntil = 0;
-
-extern const char INDEX_HTML[] PROGMEM;
 
 /* =========================== PROTOTYPES ============================= */
 
@@ -128,9 +120,9 @@ void setMotorTarget(int value);
 void applyMotor(int value);
 void stopMotor();
 void handleCommand(const String &msg);
+void sendHello();
 void sendTelemetry(bool force = false);
 void startBackend();
-String buildState();
 
 /* ============================== SETUP =============================== */
 
@@ -150,16 +142,13 @@ void setup() {
   auxNow  = auxTarget  = SERVO_HOME;
   applyAllServos();
 
-  // Motor BTS7960
+  // Driver motor HW-039 / BTS7960
   initMotor();
 
-  // Sensor
+  // Sensor soil moisture
   pinMode(PIN_SOIL, INPUT);
-  pinMode(PIN_RAIN_AO, INPUT);
-  pinMode(PIN_RAIN_DO, INPUT_PULLUP);
   analogReadResolution(12);
   analogSetPinAttenuation(PIN_SOIL, ADC_11db);
-  analogSetPinAttenuation(PIN_RAIN_AO, ADC_11db);
 
   // WiFi
   WiFi.mode(WIFI_STA);
@@ -180,42 +169,16 @@ void setup() {
     Serial.println(F("WiFi gagal, lanjut (auto reconnect aktif)"));
   }
 
-  if (MDNS.begin("esp32-dev")) {
-    MDNS.addService("http", "tcp", 80);
-    Serial.println(F("mDNS: http://esp32-dev.local"));
-  }
-
-  // Dashboard lokal (kalibrasi)
-  http.on("/", HTTP_GET, []() {
-    http.send_P(200, "text/html", INDEX_HTML);
-  });
-  http.on("/api/state", HTTP_GET, []() {
-    http.send(200, "application/json", buildState());
-  });
-  // Kontrol servo manual dari dashboard lokal: /api/servo?sync=90&aux=45
-  http.on("/api/servo", HTTP_GET, []() {
-    if (http.hasArg("sync")) {
-      syncTarget = constrain(http.arg("sync").toFloat(), 0.0f, 180.0f);
-    }
-    if (http.hasArg("aux")) {
-      auxTarget = constrain(http.arg("aux").toFloat(), 0.0f, 180.0f);
-    }
-    http.send(200, "application/json", buildState());
-  });
-  http.onNotFound([]() { http.send(404, "text/plain", "not found"); });
-  http.begin();
-
-  // Backend WebSocket
+  // Backend WebSocket (satu-satunya jalur kontrol & telemetry)
   startBackend();
 
   readSensors();
-  Serial.println(F("Siap. Dashboard lokal: http://<ip-esp32>/"));
+  Serial.println(F("Siap. Menunggu koneksi backend..."));
 }
 
 /* =============================== LOOP =============================== */
 
 void loop() {
-  http.handleClient();
   backend.loop();
   readSensors();
   updateServos();
@@ -261,18 +224,13 @@ void readSensors() {
   last = millis();
 
   soilRaw = readAverage(PIN_SOIL, 8);
-  rainRaw = readAverage(PIN_RAIN_AO, 8);
-  rainDO  = digitalRead(PIN_RAIN_DO);
-
   soilPct = pctFromRaw(soilRaw, SOIL_DRY_RAW, SOIL_WET_RAW);
-  rainPct = pctFromRaw(rainRaw, RAIN_DRY_RAW, RAIN_WET_RAW);
 
   // Bantu kalibrasi lewat Serial Monitor
   static uint32_t lastPrint = 0;
   if (millis() - lastPrint > 5000) {
     lastPrint = millis();
-    Serial.printf("[SENSOR] soil raw=%d (%d%%)  rain raw=%d (%d%%)  DO=%d\n",
-                  soilRaw, soilPct, rainRaw, rainPct, rainDO);
+    Serial.printf("[SENSOR] soil raw=%d (%d%%)\n", soilRaw, soilPct);
   }
 }
 
@@ -346,7 +304,7 @@ void initMotor() {
 #endif
   motorApplied = 1;   // paksa apply pertama
   applyMotor(0);
-  Serial.println(F("[MOTOR] BTS7960 siap (RPWM=26, LPWM=27)"));
+  Serial.println(F("[MOTOR] HW-039 / BTS7960 siap (RPWM=26, LPWM=27)"));
 }
 
 // v > 0 maju, v < 0 mundur, 0 berhenti (coast).
@@ -399,29 +357,7 @@ void stopMotor() {
   applyMotor(0);
 }
 
-/* ============================== STATE =============================== */
-
-String buildState() {
-  JsonDocument d;
-  d["type"]      = "state";
-  d["ip"]        = WiFi.localIP().toString();
-  d["rssi"]      = WiFi.RSSI();
-  d["soil"]      = soilPct;
-  d["soilRaw"]   = soilRaw;
-  d["rain"]      = rainPct;
-  d["rainRaw"]   = rainRaw;
-  d["rainDO"]    = rainDO;
-  d["rainWet"]   = RAIN_DO_ACTIVE_LOW ? (rainDO == LOW) : (rainDO == HIGH);
-  d["sync"]      = (int)lroundf(syncNow);
-  d["aux"]       = (int)lroundf(auxNow);
-  d["motor"]     = motorNow;
-  d["motorTarget"] = motorTarget;
-  d["backend"]   = backendUp;
-  d["uptime"]    = (uint32_t)(millis() / 1000);
-  String s;
-  serializeJson(d, s);
-  return s;
-}
+/* ============================== TELEMETRY =========================== */
 
 void sendTelemetry(bool force) {
   if (!backendUp) return;
@@ -429,18 +365,15 @@ void sendTelemetry(bool force) {
   lastTelemetry = millis();
 
   JsonDocument d;
-  d["type"]     = "telemetry";
-  d["soil"]     = soilPct;
-  d["soilRaw"]  = soilRaw;
-  d["rain"]     = rainPct;
-  d["rainRaw"]  = rainRaw;
-  d["rainWet"]  = RAIN_DO_ACTIVE_LOW ? (rainDO == LOW) : (rainDO == HIGH);
-  d["sync"]     = (int)lroundf(syncNow);
-  d["aux"]      = (int)lroundf(auxNow);
-  d["motor"]    = motorNow;
+  d["type"]        = "telemetry";
+  d["soil"]        = soilPct;
+  d["soilRaw"]     = soilRaw;
+  d["sync"]        = (int)lroundf(syncNow);
+  d["aux"]         = (int)lroundf(auxNow);
+  d["motor"]       = motorNow;
   d["motorTarget"] = motorTarget;
-  d["rssi"]     = WiFi.RSSI();
-  d["uptime"]   = (uint32_t)(millis() / 1000);
+  d["rssi"]        = WiFi.RSSI();
+  d["uptime"]      = (uint32_t)(millis() / 1000);
 
   String s;
   serializeJson(d, s);
@@ -448,6 +381,20 @@ void sendTelemetry(bool force) {
 }
 
 /* ============================ WEBSOCKET ============================= */
+
+void sendHello() {
+  JsonDocument h;
+  h["type"]     = "hello";
+  h["deviceId"] = DEVICE_ID;
+  h["name"]     = DEVICE_NAME;
+  h["kind"]     = "esp32dev";
+  h["firmware"] = FIRMWARE_VER;
+  h["ip"]       = WiFi.localIP().toString();
+
+  String s;
+  serializeJson(h, s);
+  backend.sendTXT(s);
+}
 
 void startBackend() {
   String path = "/ws/device?token=";
@@ -459,18 +406,7 @@ void startBackend() {
     if (type == WStype_CONNECTED) {
       backendUp = true;
       Serial.printf("[WS] backend terhubung ke %s:%u\n", BACKEND_HOST, BACKEND_PORT);
-
-      JsonDocument h;
-      h["type"]     = "hello";
-      h["deviceId"] = DEVICE_ID;
-      h["name"]     = DEVICE_NAME;
-      h["kind"]     = "esp32dev";
-      h["firmware"] = FIRMWARE_VER;
-      h["ip"]       = WiFi.localIP().toString();
-      String s;
-      serializeJson(h, s);
-      backend.sendTXT(s);
-
+      sendHello();
       sendTelemetry(true);
     } else if (type == WStype_DISCONNECTED) {
       backendUp = false;
@@ -519,7 +455,7 @@ void handleCommand(const String &msg) {
   }
 
   if (!strcmp(type, "move")) {
-    // Satu modul BTS7960 = satu motor: maju/mundur/berhenti.
+    // Satu modul HW-039/BTS7960 = satu motor: maju/mundur/berhenti.
     // Belok (kiri/kanan) butuh modul kedua atau servo kemudi terpisah.
     const char *dir = doc["dir"] | "";
     int speed = doc["speed"] | MOTOR_SPEED;
@@ -533,7 +469,7 @@ void handleCommand(const String &msg) {
     } else if (!strcmp(dir, "stop")) {
       setMotorTarget(0);
     } else if (!strcmp(dir, "left") || !strcmp(dir, "right")) {
-      Serial.println(F("[MOTOR] belok butuh 2 modul BTS7960"));
+      Serial.println(F("[MOTOR] belok butuh 2 modul HW-039/BTS7960"));
     }
     return;
   }
@@ -544,81 +480,3 @@ void handleCommand(const String &msg) {
 
   Serial.printf("[CMD] tipe tidak dikenal: %s\n", type);
 }
-
-/* ============================= DASHBOARD ============================ */
-
-const char INDEX_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html><html lang="id"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ESP32 Control</title>
-<style>
-:root{--bg:#0f1115;--card:#171a21;--fg:#e8eaed;--mut:#8b93a7;--acc:#4f8cff;--ok:#35d07f;--warn:#ffb020;--bad:#ff5c5c}
-*{box-sizing:border-box}
-body{margin:0;font:15px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg);padding:16px}
-h1{font-size:18px;margin:0 0 4px}
-.sub{color:var(--mut);font-size:12px;margin-bottom:16px}
-.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
-.card{background:var(--card);border:1px solid #242a35;border-radius:14px;padding:14px}
-.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin:0 0 10px}
-.row{display:flex;justify-content:space-between;align-items:center;margin:6px 0;gap:8px}
-input[type=range]{width:100%;accent-color:var(--acc)}
-.bar{height:8px;background:#0c0e12;border-radius:99px;overflow:hidden;margin-top:6px}
-.bar>i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:6px}
-.dot.on{background:var(--ok)}
-.val{font-variant-numeric:tabular-nums}
-.small{font-size:12px;color:var(--mut);word-break:break-word}
-</style></head><body>
-<h1>ESP32 Kontroler</h1>
-<div class="sub"><span class="dot" id="dot"></span><span id="st">memuat...</span> &middot; <span id="ip"></span></div>
-<div class="grid">
- <div class="card">
-  <h2>Servo &middot; PCA9685</h2>
-  <div class="row"><span>Servo sinkron &middot; CH0 + CH1</span><span class="val" id="syncv">90&deg;</span></div>
-  <input type="range" id="sync" min="0" max="180" value="90">
-  <div class="row" style="margin-top:14px"><span>Servo terpisah &middot; CH2</span><span class="val" id="auxv">90&deg;</span></div>
-  <input type="range" id="aux" min="0" max="180" value="90">
- </div>
- <div class="card">
-  <h2>Sensor</h2>
-  <div class="row"><span>Soil moisture</span><span class="val" id="soilv">- %</span></div>
-  <div class="bar"><i id="soilb"></i></div>
-  <div class="row" style="margin-top:12px"><span>HW-039 (hujan)</span><span class="val" id="rainv">- %</span></div>
-  <div class="bar"><i id="rainb" style="background:var(--warn)"></i></div>
-  <div class="row"><span>Digital DO</span><span class="val" id="raind">-</span></div>
- </div>
- <div class="card">
-  <h2>Integrasi</h2>
-  <div class="small">Perintah gerak dan kamera dikirim dari web GRENVIS lewat backend.
-  Halaman ini hanya untuk kalibrasi servo dan cek sensor di lapangan.</div>
-  <div class="row" style="margin-top:12px"><span>WebSocket backend</span><span class="val" id="be">-</span></div>
- </div>
-</div>
-<script>
-const $=id=>document.getElementById(id);
-async function tick(){
-  try{
-    const j=await (await fetch('/api/state')).json();
-    $('dot').classList.toggle('on',!!j.backend);
-    $('st').textContent=j.backend?'backend terhubung':'backend terputus';
-    $('ip').textContent=j.ip||'';
-    $('soilv').textContent=j.soil+' %'; $('soilb').style.width=j.soil+'%';
-    $('rainv').textContent=j.rain+' %'; $('rainb').style.width=j.rain+'%';
-    $('raind').textContent=j.rainDO;
-    if(document.activeElement!==$('sync')){$('sync').value=j.sync;$('syncv').textContent=j.sync+'°';}
-    if(document.activeElement!==$('aux')){$('aux').value=j.aux;$('auxv').textContent=j.aux+'°';}
-    $('be').textContent=j.backend?'online':'offline';
-  }catch(e){
-    $('dot').classList.remove('on');$('st').textContent='terputus';
-  }
-}
-function push(k,v){
-  fetch('/api/servo?'+k+'='+v).then(tick).catch(()=>{});
-}
-$('sync').oninput=e=>{$('syncv').textContent=e.target.value+'°';};
-$('sync').onchange=e=>push('sync',e.target.value);
-$('aux').oninput=e=>{$('auxv').textContent=e.target.value+'°';};
-$('aux').onchange=e=>push('aux',e.target.value);
-tick();setInterval(tick,2000);
-</script></body></html>
-)rawliteral";
