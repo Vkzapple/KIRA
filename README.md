@@ -4,7 +4,7 @@ Sistem pemantauan tanaman dan kendali robot:
 
 - **Website** (Next.js + TypeScript) untuk melihat foto/sensor dan mengirim perintah.
 - **Backend** (Go + chi) sebagai satu-satunya WebSocket hub, penyimpan riwayat, dan jembatan ke Supabase.
-- **ESP32 Dev** menggerakkan 3 servo lewat PCA9685, membaca soil moisture & HW-039, mengirim telemetry.
+- **ESP32 Dev** menggerakkan 3 servo lewat PCA9685, 1 motor lewat driver BTS7960, membaca soil moisture & HW-039, mengirim telemetry.
 - **ESP32-CAM** memindai objek via Roboflow dan hanya menyimpan foto saat target terdeteksi.
 
 ```
@@ -193,6 +193,25 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 #define SYNC_B_OFFSET  0        // geser sudut (derajat), misal 5
 ```
 
+### Driver motor BTS7960 (1 modul)
+
+| BTS7960 | ESP32 Dev / supply | Catatan |
+|---|---|---|
+| VCC (logic) | 3V3 | logic 3.3V aman |
+| GND (logic) | GND | **GND harus sama dengan supply motor** |
+| R_EN | 3V3 | enable kanan (aktif HIGH) |
+| L_EN | 3V3 | enable kiri (aktif HIGH) |
+| RPWM | **GPIO 26** | PWM maju, 20 kHz |
+| LPWM | **GPIO 27** | PWM mundur, 20 kHz |
+| B+ / B− | supply motor | misal 12V; **jangan** dari ESP32 |
+| M+ / M− | motor DC | 1 modul = 1 motor |
+
+- `move forward` → RPWM naik, `move backward` → LPWM naik, `move stop` → keduanya 0.
+- `move left`/`move right` **tidak menggerakkan apa pun** karena butuh modul BTS7960 kedua (atau servo kemudi). Tombol belok di web otomatis dinonaktifkan.
+- Firmware sudah punya ramp 300 ms dan jeda 120 ms saat balik arah, serta otomatis stop kalau WiFi/backend putus.
+- Penyesuaian kecepatan: `#define MOTOR_SPEED 180` (0–255) dan `#define MOTOR_RAMP_MS 300`.
+- Kalau motor berputar kebalik, tukar kabel `M+`/`M−` (jangan balik polaritas supply).
+
 ### Sensor
 
 | Modul | Pin modul | ESP32 Dev |
@@ -319,7 +338,7 @@ Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan
 4. Buka website → **Hubungkan robot** → masukkan password.
 5. Beranda menampilkan foto terakhir + kondisi kebun (soil, HW-039, status kamera).
 6. Buka **Controller**:
-   - tombol arah / WASD untuk gerak,
+   - tombol maju/mundur / W-S untuk menggerakkan motor BTS7960,
    - probe tanah naik/turun,
    - servo kamera kiri/kanan,
    - **Vision AI**: isi target, klik **Mulai pantau**, atau **Foto + AI sekarang** untuk satu kali scan.
@@ -336,7 +355,7 @@ Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan
 ### Dashboard (browser) → server
 
 ```json
-{"type":"move","dir":"forward","id":"...","ts":123}
+{"type":"move","dir":"forward","speed":180,"id":"...","ts":123}
 {"type":"probe","dir":"down"}
 {"type":"camera","dir":"left"}
 {"type":"servo","sync":120,"aux":45}
@@ -361,7 +380,7 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 ```json
 {"type":"hello","deviceId":"grenvis-01-dev","kind":"esp32dev","firmware":"1.0.0","ip":"192.168.1.50"}
 {"type":"telemetry","soil":48,"soilRaw":1980,"rain":0,"rainRaw":3800,
- "rainWet":false,"sync":90,"aux":90,"rssi":-55,"uptime":300}
+ "rainWet":false,"sync":90,"aux":90,"motor":180,"motorTarget":180,"rssi":-55,"uptime":300}
 {"type":"ai_status","armed":true,"busy":false,"target":"person"}
 {"type":"detection","class":"person","confidence":0.87,"count":2,"url":"https://.../foto.jpg"}
 ```
@@ -380,6 +399,9 @@ Status kamera (`camOnline`, `camArmed`, `camBusy`, `camTarget`) hanya ditulis ol
 | Upload foto 401 | `DEVICE_TOKEN` firmware ≠ `.env` backend |
 | Foto tidak muncul | Cek `PUBLIC_BASE_URL` (mode lokal) atau bucket Storage (Supabase) |
 | Servo tidak gerak | V+ PCA9685 belum diberi 5V, GND tidak disatukan, atau alamat I2C bukan 0x40 |
+| Motor tidak berputar | `R_EN`/`L_EN` belum ke 3V3, supply motor (B+/B−) belum diberi daya, atau GND logic vs motor belum disatukan |
+| Motor berputar kebalik | Tukar kabel `M+`/`M−` di modul BTS7960 |
+| Motor diam saat tombol belok | Normal untuk 1 modul; belok butuh modul BTS7960 kedua |
 | Servo bergetar / reset | Adaptor kurang arus; tambahkan kapasitor 470–1000 µF di V+ |
 | Sensor soil selalu 0/100 | Kalibrasi `SOIL_DRY_RAW`/`SOIL_WET_RAW` belum sesuai |
 | `HTTP -1` di log Roboflow | WiFi lemah / heap habis / API key salah. Pastikan PSRAM Enabled |

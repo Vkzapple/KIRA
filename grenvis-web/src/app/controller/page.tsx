@@ -92,7 +92,10 @@ export default function ControllerPage() {
           <h2 className="self-start font-display text-lg font-bold text-forest-900">
             Gerak robot
           </h2>
-          <DPad onMove={onMove} />
+          <DPad onMove={onMove} turnEnabled={false} />
+          <p className="text-center text-xs text-stone-500">
+            Satu modul BTS7960: maju/mundur saja. Belok butuh modul kedua.
+          </p>
         </section>
 
         <div className="flex flex-col gap-6">

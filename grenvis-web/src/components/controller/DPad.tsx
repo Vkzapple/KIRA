@@ -6,6 +6,8 @@ import type { MoveDir } from "@/lib/types";
 
 interface Props {
   onMove: (dir: MoveDir) => void;
+  /** Satu modul BTS7960 tidak bisa berbelok; tombol kiri/kanan dinonaktifkan. */
+  turnEnabled?: boolean;
 }
 
 const KEY_MAP: Record<string, MoveDir> = {
@@ -19,10 +21,14 @@ const KEY_MAP: Record<string, MoveDir> = {
   d: "right",
 };
 
-export default function DPad({ onMove }: Props) {
+export default function DPad({ onMove, turnEnabled = true }: Props) {
   const [active, setActive] = useState<MoveDir | null>(null);
 
+  const isTurn = (dir: MoveDir) => dir === "left" || dir === "right";
+  const blocked = (dir: MoveDir) => !turnEnabled && isTurn(dir);
+
   const press = (dir: MoveDir) => {
+    if (blocked(dir)) return;
     setActive(dir);
     onMove(dir);
   };
@@ -37,6 +43,7 @@ export default function DPad({ onMove }: Props) {
     const down = (e: KeyboardEvent) => {
       const dir = KEY_MAP[e.key];
       if (!dir || e.repeat) return;
+      if (!turnEnabled && (dir === "left" || dir === "right")) return;
       e.preventDefault();
       setActive(dir);
       onMove(dir);
@@ -58,14 +65,20 @@ export default function DPad({ onMove }: Props) {
       window.removeEventListener("keyup", up);
       window.removeEventListener("blur", blur);
     };
-  }, [onMove]);
+  }, [onMove, turnEnabled]);
 
-  const btn = (dir: MoveDir, label: string, icon: ReactNode) => (
+  const btn = (dir: MoveDir, label: string, icon: ReactNode) => {
+    const disabled = blocked(dir);
+    return (
     <button
       type="button"
       aria-label={label}
       aria-pressed={active === dir}
+      aria-disabled={disabled}
+      disabled={disabled}
+      title={disabled ? "Butuh modul BTS7960 kedua untuk berbelok" : label}
       onPointerDown={(e) => {
+        if (disabled) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         press(dir);
       }}
@@ -73,12 +86,17 @@ export default function DPad({ onMove }: Props) {
       onPointerCancel={release}
       onContextMenu={(e) => e.preventDefault()}
       className={`flex size-20 touch-none select-none items-center justify-center rounded-2xl text-white transition-colors sm:size-24 ${
-        active === dir ? "bg-forest-900" : "bg-forest-700 hover:bg-forest-600"
+        disabled
+          ? "cursor-not-allowed bg-stone-300 text-stone-500"
+          : active === dir
+            ? "bg-forest-900"
+            : "bg-forest-700 hover:bg-forest-600"
       }`}
     >
       {icon}
     </button>
-  );
+    );
+  };
 
   return (
     <div className="grid w-fit grid-cols-3 gap-3">

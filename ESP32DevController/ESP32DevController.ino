@@ -5,13 +5,15 @@
      1. PCA9685 (I2C) menggerakkan 3 servo:
           CH0 + CH1 -> servo SINKRON (arah sama, bisa di-invert/di-offset)
           CH2       -> servo TERPISAH (independen)
-     2. Sensor soil moisture (analog, ADC1) + modul HW-039 (AO + DO)
-     3. Konek ke backend GRENVIS (Go) lewat WebSocket sebagai device:
+     2. Driver motor BTS7960 (1 modul) untuk roda/mekanisme:
+          RPWM/LPWM -> PWM 20 kHz, arah maju/mundur
+     3. Sensor soil moisture (analog, ADC1) + modul HW-039 (AO + DO)
+     4. Konek ke backend GRENVIS (Go) lewat WebSocket sebagai device:
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
         - kirim telemetry tiap 2 detik
         - terima perintah: move, servo, probe, camera
-     4. Dashboard lokal (HTTP port 80) untuk kalibrasi di lapangan
-     5. ESP32-CAM konek sendiri ke backend yang sama (lihat sketch CAM)
+     5. Dashboard lokal (HTTP port 80) untuk kalibrasi di lapangan
+     6. ESP32-CAM konek sendiri ke backend yang sama (lihat sketch CAM)
 
    Library (Library Manager):
      - Adafruit PWM Servo Driver Library  (otomatis tarik Adafruit BusIO)
@@ -69,7 +71,6 @@
 
 // Langkah perintah dari web (derajat)
 #define STEP_SERVO     5
-#define STEP_MOVE      12
 
 // ---- Kalibrasi ADC (12-bit, 0..4095) ----
 // Ukur sendiri: kering di udara, basah di air. Nilai di bawah = contoh umum.
@@ -78,6 +79,18 @@
 #define RAIN_DRY_RAW        3800
 #define RAIN_WET_RAW        1200
 #define RAIN_DO_ACTIVE_LOW  true
+
+// ---- BTS7960 (1 modul) ----
+// R_EN dan L_EN dihubungkan ke 3V3. V+ ke supply motor, GND disatukan.
+#define PIN_MOTOR_RPWM   26
+#define PIN_MOTOR_LPWM   27
+#define MOTOR_PWM_FREQ   20000    // 20 kHz, di atas ambang dengar
+#define MOTOR_PWM_BITS   8        // duty 0..255
+#define MOTOR_SPEED      180      // kecepatan default (0..255)
+#define MOTOR_RAMP_MS    300      // waktu dari 0 ke duty penuh
+#define MOTOR_DEADTIME_MS 120     // jeda saat balik arah
+#define CH_MOTOR_RPWM    4        // kanal LEDC (core 2.x)
+#define CH_MOTOR_LPWM    5
 
 #define TELEMETRY_MS   2000
 
@@ -96,6 +109,12 @@ int soilPct = 0, rainPct = 0;
 bool backendUp = false;
 uint32_t lastTelemetry = 0;
 
+// Motor BTS7960: nilai -255..255 (negatif = mundur).
+int      motorTarget   = 0;
+int      motorNow      = 0;
+int      motorApplied  = 0;
+uint32_t motorDeadUntil = 0;
+
 extern const char INDEX_HTML[] PROGMEM;
 
 /* =========================== PROTOTYPES ============================= */
@@ -103,6 +122,11 @@ extern const char INDEX_HTML[] PROGMEM;
 void readSensors();
 void updateServos();
 void applyAllServos();
+void initMotor();
+void updateMotor();
+void setMotorTarget(int value);
+void applyMotor(int value);
+void stopMotor();
 void handleCommand(const String &msg);
 void sendTelemetry(bool force = false);
 void startBackend();
@@ -125,6 +149,9 @@ void setup() {
   syncNow = syncTarget = SERVO_HOME;
   auxNow  = auxTarget  = SERVO_HOME;
   applyAllServos();
+
+  // Motor BTS7960
+  initMotor();
 
   // Sensor
   pinMode(PIN_SOIL, INPUT);
@@ -192,13 +219,17 @@ void loop() {
   backend.loop();
   readSensors();
   updateServos();
+  updateMotor();
   sendTelemetry();
 
   // WiFi reconnect manual kalau perlu
   static uint32_t lastWifiCheck = 0;
-  if (WiFi.status() != WL_CONNECTED && millis() - lastWifiCheck > 5000) {
-    lastWifiCheck = millis();
-    WiFi.reconnect();
+  if (WiFi.status() != WL_CONNECTED) {
+    stopMotor();   // jangan tinggalkan motor berputar saat jaringan putus
+    if (millis() - lastWifiCheck > 5000) {
+      lastWifiCheck = millis();
+      WiFi.reconnect();
+    }
   }
 
   delay(2);
@@ -289,6 +320,85 @@ void updateServos() {
   if (changed) applyAllServos();
 }
 
+/* =============================== MOTOR =============================== */
+
+// Tulis duty ke pin LEDC. Core ESP32 3.x memakai nomor pin,
+// core 2.x memakai nomor kanal.
+void writeMotorPWM(uint8_t pin, uint8_t channel, uint8_t duty) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  (void)channel;
+  ledcWrite(pin, duty);
+#else
+  (void)pin;
+  ledcWrite(channel, duty);
+#endif
+}
+
+void initMotor() {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcAttach(PIN_MOTOR_RPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+  ledcAttach(PIN_MOTOR_LPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+#else
+  ledcSetup(CH_MOTOR_RPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+  ledcAttachPin(PIN_MOTOR_RPWM, CH_MOTOR_RPWM);
+  ledcSetup(CH_MOTOR_LPWM, MOTOR_PWM_FREQ, MOTOR_PWM_BITS);
+  ledcAttachPin(PIN_MOTOR_LPWM, CH_MOTOR_LPWM);
+#endif
+  motorApplied = 1;   // paksa apply pertama
+  applyMotor(0);
+  Serial.println(F("[MOTOR] BTS7960 siap (RPWM=26, LPWM=27)"));
+}
+
+// v > 0 maju, v < 0 mundur, 0 berhenti (coast).
+void applyMotor(int v) {
+  if (v == motorApplied) return;
+  motorApplied = v;
+
+  uint8_t forward = v > 0 ? (uint8_t)v : 0;
+  uint8_t reverse = v < 0 ? (uint8_t)(-v) : 0;
+
+  writeMotorPWM(PIN_MOTOR_RPWM, CH_MOTOR_RPWM, forward);
+  writeMotorPWM(PIN_MOTOR_LPWM, CH_MOTOR_LPWM, reverse);
+}
+
+void setMotorTarget(int value) {
+  value = constrain(value, -255, 255);
+
+  int nowSign = (motorNow > 0) - (motorNow < 0);
+  int newSign = (value > 0) - (value < 0);
+  if (nowSign != 0 && newSign != 0 && nowSign != newSign) {
+    // Balik arah: rem dulu, beri jeda supaya H-bridge tidak shoot-through.
+    motorNow = 0;
+    applyMotor(0);
+    motorDeadUntil = millis() + MOTOR_DEADTIME_MS;
+  }
+  motorTarget = value;
+}
+
+void updateMotor() {
+  static uint32_t last = 0;
+  if (millis() - last < 20) return;
+  last = millis();
+
+  if ((int32_t)(millis() - motorDeadUntil) < 0) return;
+
+  int step = (255 * 20) / MOTOR_RAMP_MS;
+  if (step < 1) step = 1;
+
+  if (motorNow < motorTarget) {
+    motorNow = min(motorTarget, motorNow + step);
+  } else if (motorNow > motorTarget) {
+    motorNow = max(motorTarget, motorNow - step);
+  }
+  applyMotor(motorNow);
+}
+
+void stopMotor() {
+  motorTarget = 0;
+  motorNow = 0;
+  applyMotor(0);
+}
+
 /* ============================== STATE =============================== */
 
 String buildState() {
@@ -304,6 +414,8 @@ String buildState() {
   d["rainWet"]   = RAIN_DO_ACTIVE_LOW ? (rainDO == LOW) : (rainDO == HIGH);
   d["sync"]      = (int)lroundf(syncNow);
   d["aux"]       = (int)lroundf(auxNow);
+  d["motor"]     = motorNow;
+  d["motorTarget"] = motorTarget;
   d["backend"]   = backendUp;
   d["uptime"]    = (uint32_t)(millis() / 1000);
   String s;
@@ -325,6 +437,8 @@ void sendTelemetry(bool force) {
   d["rainWet"]  = RAIN_DO_ACTIVE_LOW ? (rainDO == LOW) : (rainDO == HIGH);
   d["sync"]     = (int)lroundf(syncNow);
   d["aux"]      = (int)lroundf(auxNow);
+  d["motor"]    = motorNow;
+  d["motorTarget"] = motorTarget;
   d["rssi"]     = WiFi.RSSI();
   d["uptime"]   = (uint32_t)(millis() / 1000);
 
@@ -360,6 +474,7 @@ void startBackend() {
       sendTelemetry(true);
     } else if (type == WStype_DISCONNECTED) {
       backendUp = false;
+      stopMotor();   // jangan tinggalkan motor berputar tanpa kendali
       Serial.println(F("[WS] backend terputus, mencoba ulang..."));
     } else if (type == WStype_TEXT) {
       handleCommand(String((char *)payload, len));
@@ -404,16 +519,21 @@ void handleCommand(const String &msg) {
   }
 
   if (!strcmp(type, "move")) {
-    // Catatan: firmware ini belum memakai driver motor roda.
-    // Perintah move dipetakan ke gerakan servo supaya ada umpan balik.
+    // Satu modul BTS7960 = satu motor: maju/mundur/berhenti.
+    // Belok (kiri/kanan) butuh modul kedua atau servo kemudi terpisah.
     const char *dir = doc["dir"] | "";
-    if (!strcmp(dir, "left"))     syncTarget = constrain(syncTarget + STEP_MOVE, 0.0f, 180.0f);
-    if (!strcmp(dir, "right"))    syncTarget = constrain(syncTarget - STEP_MOVE, 0.0f, 180.0f);
-    if (!strcmp(dir, "forward"))  auxTarget  = constrain(auxTarget + STEP_MOVE, 0.0f, 180.0f);
-    if (!strcmp(dir, "backward")) auxTarget  = constrain(auxTarget - STEP_MOVE, 0.0f, 180.0f);
-    if (!strcmp(dir, "stop")) {
-      syncTarget = syncNow;
-      auxTarget  = auxNow;
+    int speed = doc["speed"] | MOTOR_SPEED;
+    if (speed < 0) speed = 0;
+    if (speed > 255) speed = 255;
+
+    if (!strcmp(dir, "forward")) {
+      setMotorTarget(speed);
+    } else if (!strcmp(dir, "backward")) {
+      setMotorTarget(-speed);
+    } else if (!strcmp(dir, "stop")) {
+      setMotorTarget(0);
+    } else if (!strcmp(dir, "left") || !strcmp(dir, "right")) {
+      Serial.println(F("[MOTOR] belok butuh 2 modul BTS7960"));
     }
     return;
   }

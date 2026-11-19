@@ -31,6 +31,8 @@ create table if not exists public.telemetry (
   rain_wet     boolean not null default false,
   sync_angle   int,
   aux_angle    int,
+  motor        int,
+  motor_target int,
   cam_online   boolean not null default false,
   cam_armed    boolean not null default false,
   cam_busy     boolean not null default false,
@@ -44,6 +46,10 @@ create index if not exists telemetry_created_at_idx
   on public.telemetry (created_at desc);
 create index if not exists telemetry_device_time_idx
   on public.telemetry (device_id, created_at desc);
+
+-- Migrasi untuk database yang dibuat sebelum kolom motor ada.
+alter table public.telemetry add column if not exists motor int;
+alter table public.telemetry add column if not exists motor_target int;
 
 -- --------------------------------------------------------------- snapshots
 create table if not exists public.snapshots (

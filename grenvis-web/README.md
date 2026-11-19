@@ -29,7 +29,7 @@ Password untuk masuk ke robot diatur di backend (`ROBOT_PASSWORD`, default `gren
 ## Fitur
 
 - **Beranda**: status koneksi, tombol Hubungkan robot (popup password), foto terakhir robot, dan kartu kondisi kebun (soil moisture, HW-039, status kamera) yang diperbarui tiap 5 detik.
-- **Controller** (terkunci sampai robot terhubung): tombol 4 arah, servo probe tanah (angkat/turunkan), servo kamera (kiri/kanan), kontrol **Vision AI** (target + mulai/hentikan + foto & analisis sekarang), riwayat perintah.
+- **Controller** (terkunci sampai robot terhubung): tombol maju/mundur (motor BTS7960; tombol belok nonaktif karena baru 1 modul), servo probe tanah (angkat/turunkan), servo kamera (kiri/kanan), kontrol **Vision AI** (target + mulai/hentikan + foto & analisis sekarang), riwayat perintah.
 
 ## Struktur
 

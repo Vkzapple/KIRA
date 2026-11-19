@@ -56,6 +56,14 @@ export default function SensorCard() {
 
   const soil = data?.soil ?? 0;
   const rain = data?.rain ?? 0;
+  const motor = data?.motor ?? 0;
+  const motorText = !data
+    ? "—"
+    : motor > 0
+      ? `Maju ${motor}`
+      : motor < 0
+        ? `Mundur ${Math.abs(motor)}`
+        : "Berhenti";
 
   return (
     <section
@@ -105,7 +113,7 @@ export default function SensorCard() {
         </div>
       </dl>
 
-      <div className="mt-4 grid grid-cols-3 gap-2 border-t border-stone-200 pt-3 text-center text-xs text-stone-600">
+      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-stone-200 pt-3 text-center text-xs text-stone-600 sm:grid-cols-4">
         <div>
           <div className="font-semibold text-forest-900">{data ? `${data.sync}°` : "—"}</div>
           Servo utama
@@ -113,6 +121,10 @@ export default function SensorCard() {
         <div>
           <div className="font-semibold text-forest-900">{data ? `${data.aux}°` : "—"}</div>
           Servo aux
+        </div>
+        <div>
+          <div className="font-semibold text-forest-900">{motorText}</div>
+          Motor BTS7960
         </div>
         <div>
           <div className="flex items-center justify-center gap-1 font-semibold text-forest-900">
