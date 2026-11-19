@@ -5,9 +5,12 @@ import Link from "next/link";
 import {
   ArrowDownToLine,
   ArrowUpToLine,
+  Camera,
   Lock,
   RotateCcw,
   RotateCw,
+  ScanEye,
+  Square,
 } from "lucide-react";
 import { useRobot } from "@/context/RobotContext";
 import DPad from "@/components/controller/DPad";
@@ -24,6 +27,8 @@ interface LogEntry {
 export default function ControllerPage() {
   const { status, send } = useRobot();
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [target, setTarget] = useState("person");
+  const [aiArmed, setAiArmed] = useState(false);
   const connected = status === "connected";
 
   const dispatch = useCallback(
@@ -120,6 +125,76 @@ export default function ControllerPage() {
               onStep: () => dispatch({ type: "camera", dir: "right" }),
             }}
           />
+
+          <section className="rounded-2xl border border-forest-900/10 bg-white p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 font-display text-lg font-bold text-forest-900">
+                <ScanEye className="size-5 text-forest-600" aria-hidden="true" />
+                Vision AI (Roboflow)
+              </h3>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  aiArmed
+                    ? "bg-forest-100 text-forest-800"
+                    : "bg-stone-100 text-stone-600"
+                }`}
+              >
+                {aiArmed ? "Memantau" : "Nonaktif"}
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-stone-600">
+              ESP32-CAM memindai objek secara berkala dan hanya menyimpan foto
+              saat objek target terdeteksi.
+            </p>
+
+            <label
+              htmlFor="ai-target"
+              className="mt-4 block text-sm font-medium text-forest-900"
+            >
+              Objek target
+            </label>
+            <input
+              id="ai-target"
+              type="text"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder="person, bottle"
+              className="mt-1.5 w-full rounded-xl border border-stone-300 px-3 py-2 text-sm outline-none focus:border-forest-600"
+            />
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  dispatch({ type: "ai", armed: true, target });
+                  setAiArmed(true);
+                }}
+                className="flex items-center gap-2 rounded-full bg-forest-700 px-4 py-2 text-sm font-semibold text-white hover:bg-forest-800"
+              >
+                <ScanEye className="size-4" aria-hidden="true" />
+                Mulai pantau
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  dispatch({ type: "ai", armed: false, target });
+                  setAiArmed(false);
+                }}
+                className="flex items-center gap-2 rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+              >
+                <Square className="size-4" aria-hidden="true" />
+                Hentikan
+              </button>
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "capture" })}
+                className="flex items-center gap-2 rounded-full border border-forest-700 px-4 py-2 text-sm font-medium text-forest-800 hover:bg-forest-50"
+              >
+                <Camera className="size-4" aria-hidden="true" />
+                Foto + AI sekarang
+              </button>
+            </div>
+          </section>
 
           <section className="rounded-2xl border border-forest-900/10 bg-white p-5">
             <h3 className="font-display text-lg font-bold text-forest-900">

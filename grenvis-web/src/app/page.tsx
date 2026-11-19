@@ -7,6 +7,7 @@ import { useRobot } from "@/context/RobotContext";
 import ConnectionBadge from "@/components/ConnectionBadge";
 import ConnectModal from "@/components/ConnectModal";
 import PlantMonitorCard from "@/components/PlantMonitorCard";
+import SensorCard from "@/components/SensorCard";
 
 export default function HomePage() {
   const { status, disconnect } = useRobot();
@@ -73,6 +74,8 @@ export default function HomePage() {
             )}
           </div>
         </div>
+
+        <SensorCard />
       </section>
 
       <PlantMonitorCard />

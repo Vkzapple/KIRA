@@ -34,5 +34,11 @@ export function describeCommand(cmd: RobotCommand): string {
       return cmd.dir === "up" ? "Probe tanah: naik" : "Probe tanah: turun";
     case "camera":
       return cmd.dir === "left" ? "Kamera: putar kiri" : "Kamera: putar kanan";
+    case "ai":
+      return cmd.armed
+        ? `Vision AI: aktif${cmd.target ? ` (${cmd.target})` : ""}`
+        : "Vision AI: berhenti";
+    case "capture":
+      return "Kamera: ambil foto + analisis AI";
   }
 }
