@@ -9,7 +9,7 @@ export type ProbeDir = "up" | "down";
 export type CameraDir = "left" | "right";
 
 export type RobotCommand =
-  | { type: "move"; dir: MoveDir }
+  | { type: "move"; dir: MoveDir; speed?: number }
   | { type: "probe"; dir: ProbeDir }
   | { type: "camera"; dir: CameraDir }
   | { type: "servo"; sync?: number; aux?: number }

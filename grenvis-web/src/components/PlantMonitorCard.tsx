@@ -37,14 +37,17 @@ export default function PlantMonitorCard() {
   return (
     <section
       aria-labelledby="monitor-title"
-      className="overflow-hidden rounded-2xl border border-forest-900/10 bg-white"
+      className="overflow-hidden rounded-3xl border border-white/10 bg-olive-900 shadow-panel"
     >
-      <div className="flex items-center justify-between gap-3 border-b border-forest-900/10 px-5 py-4">
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-4">
         <div>
-          <h2 id="monitor-title" className="font-display text-xl font-bold text-forest-900">
-            Foto terakhir dari robot
+          <h2
+            id="monitor-title"
+            className="font-display text-lg font-bold text-cream"
+          >
+            Foto terakhir
           </h2>
-          <p className="text-sm text-stone-600">
+          <p className="text-sm text-cream/60">
             Diambil kamera robot saat patroli kebun.
           </p>
         </div>
@@ -52,61 +55,80 @@ export default function PlantMonitorCard() {
           type="button"
           onClick={load}
           disabled={state === "loading"}
-          className="flex items-center gap-2 rounded-full border border-forest-700 px-4 py-2 text-sm font-medium text-forest-800 hover:bg-forest-50 disabled:opacity-50"
+          aria-label="Perbarui foto"
+          className="group flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-cream/70 transition-colors hover:border-gold/40 hover:text-cream disabled:opacity-40"
         >
           <RefreshCw
-            className={`size-4 ${state === "loading" ? "animate-spin" : ""}`}
+            className={`size-4 text-gold ${state === "loading" ? "animate-spin" : ""}`}
             aria-hidden="true"
           />
-          Perbarui
+          <span className="hidden sm:inline">Perbarui</span>
         </button>
       </div>
 
       {state === "loading" && !snapshot && (
-        <div className="aspect-[4/3] animate-pulse bg-forest-100" aria-busy="true" />
+        <div
+          className="aspect-[4/3] animate-pulse bg-olive-800"
+          aria-busy="true"
+        />
       )}
 
       {state === "error" && (
-        <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-red-50 px-6 text-center">
-          <p className="font-medium text-alert">Foto terakhir gagal dimuat.</p>
-          <p className="text-sm text-stone-600">Periksa koneksi internet, lalu tekan Perbarui.</p>
+        <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-ink/60 px-6 text-center">
+          <span className="flex size-12 items-center justify-center rounded-2xl bg-alert/10 text-alert">
+            <Camera className="size-6" aria-hidden="true" />
+          </span>
+          <p className="font-semibold text-cream">Foto terakhir gagal dimuat.</p>
+          <p className="text-sm text-cream/50">
+            Periksa koneksi internet, lalu tekan Perbarui.
+          </p>
         </div>
       )}
 
       {state === "empty" && (
-        <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-forest-50 px-6 text-center">
-          <Camera className="size-8 text-forest-600" aria-hidden="true" />
-          <p className="font-medium text-forest-900">Belum ada foto dari robot.</p>
-          <p className="text-sm text-stone-600">Foto akan muncul setelah robot selesai patroli pertama.</p>
+        <div className="flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-ink/40 px-6 text-center">
+          <span className="flex size-12 items-center justify-center rounded-2xl bg-olive-800 text-olive-300">
+            <Camera className="size-6" aria-hidden="true" />
+          </span>
+          <p className="font-semibold text-cream">Belum ada foto dari robot.</p>
+          <p className="text-sm text-cream/50">
+            Foto akan muncul setelah robot selesai patroli pertama.
+          </p>
         </div>
       )}
 
       {snapshot && state !== "error" && state !== "empty" && (
-        <>
+        <div className="relative aspect-[4/3]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={snapshot.imageUrl}
             alt={`Foto terakhir tanaman ${snapshot.plantName}`}
-            className="aspect-[4/3] w-full object-cover"
+            className="absolute inset-0 size-full object-cover"
           />
-          <dl className="grid gap-4 px-5 py-4 sm:grid-cols-2">
+          <div
+            aria-hidden="true"
+            className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-ink via-ink/60 to-transparent"
+          />
+          <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-3 p-5">
             <div>
-              <dt className="text-sm text-stone-500">Tanaman</dt>
-              <dd className="font-semibold text-forest-900">{snapshot.plantName}</dd>
+              <p className="text-xs uppercase tracking-[0.16em] text-gold">
+                Tanaman
+              </p>
+              <p className="font-display text-xl font-bold text-cream">
+                {snapshot.plantName}
+              </p>
+              <p className="mt-0.5 text-xs text-cream/50">
+                {formatRelative(snapshot.capturedAt, now)}
+              </p>
             </div>
-            <div>
-              <dt className="text-sm text-stone-500">Waktu pengambilan</dt>
-              <dd className="font-semibold text-forest-900">
-                <time dateTime={snapshot.capturedAt}>
-                  {formatTimestamp(snapshot.capturedAt)}
-                </time>
-                <span className="block text-sm font-normal text-stone-600">
-                  {formatRelative(snapshot.capturedAt, now)}
-                </span>
-              </dd>
-            </div>
-          </dl>
-        </>
+            <time
+              dateTime={snapshot.capturedAt}
+              className="rounded-full border border-white/10 bg-ink/60 px-3 py-1 font-mono text-[11px] text-cream/60 backdrop-blur"
+            >
+              {formatTimestamp(snapshot.capturedAt)}
+            </time>
+          </div>
+        </div>
       )}
     </section>
   );

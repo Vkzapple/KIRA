@@ -172,6 +172,7 @@ func (a *API) telemetryLatest(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := a.store.ListTelemetry(ctx, 1)
 	if err != nil {
+		a.log.Warn("gagal membaca telemetry", "err", err)
 		writeError(w, http.StatusBadGateway, "gagal membaca telemetry")
 		return
 	}
@@ -189,6 +190,7 @@ func (a *API) telemetryList(w http.ResponseWriter, r *http.Request) {
 
 	list, err := a.store.ListTelemetry(ctx, limit)
 	if err != nil {
+		a.log.Warn("gagal membaca riwayat telemetry", "err", err)
 		writeError(w, http.StatusBadGateway, "gagal membaca telemetry")
 		return
 	}

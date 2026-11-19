@@ -111,6 +111,9 @@ Device mengirim token lewat header `X-Device-Token` (HTTP) atau query `?token=` 
 1. Buat project di <https://supabase.com>.
 2. Buka **SQL Editor**, tempel isi `grenvis-server/supabase/schema.sql`, jalankan.
    Skrip ini membuat tabel `devices`, `telemetry`, `snapshots`, `detections`, mengaktifkan RLS, dan membuat bucket Storage publik `grenvis-snapshots`.
+
+   > Kalau log backend menampilkan `PGRST205 Could not find the table 'public.telemetry'`,
+   > berarti skrip ini belum dijalankan di project Supabase yang dipakai `.env`.
 3. Buka **Project Settings → API**, salin:
    - **Project URL** → `SUPABASE_URL`
    - **service_role key** → `SUPABASE_SERVICE_ROLE_KEY` (jangan pernah dipakai di frontend)
@@ -335,7 +338,7 @@ Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan
 4. Buka website → **Hubungkan robot** → masukkan password.
 5. Beranda menampilkan foto terakhir + kondisi kebun (soil moisture, status driver motor HW-039, status kamera).
 6. Buka **Controller**:
-   - tombol maju/mundur / W-S untuk menggerakkan motor BTS7960,
+   - tuas analog untuk maju/mundur dengan kecepatan proporsional (semakin jauh digeser, semakin cepat). Posisi tuas terkunci: motor terus berjalan sampai tombol **Berhenti** ditekan,
    - slider servo PCA9685 untuk kalibrasi (servo sinkron CH0+CH1 dan servo terpisah CH2),
    - probe tanah naik/turun,
    - servo kamera kiri/kanan,
@@ -393,6 +396,8 @@ Status kamera (`camOnline`, `camArmed`, `camBusy`, `camTarget`) hanya ditulis ol
 |---|---|
 | Website: "Server aktif, tapi robot belum terhubung" | ESP32 belum konek, `BACKEND_HOST` salah, atau token beda |
 | `[WS] backend terputus` berulang | Backend tidak jalan / firewall memblokir port 8080 / salah IP |
+| `ws device upgrade gagal ... request origin not allowed` | Versi backend lama. Build/restart backend terbaru; endpoint device sekarang tidak memakai pengecekan Origin browser |
+| `/api/telemetry/latest` 502 + log `PGRST205` | Tabel Supabase belum dibuat. Jalankan `grenvis-server/supabase/schema.sql` di SQL Editor |
 | Login selalu 401 | `ROBOT_PASSWORD` di `.env` backend berbeda |
 | Upload foto 401 | `DEVICE_TOKEN` firmware ≠ `.env` backend |
 | Foto tidak muncul | Cek `PUBLIC_BASE_URL` (mode lokal) atau bucket Storage (Supabase) |

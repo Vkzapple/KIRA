@@ -88,6 +88,13 @@ func NewHub(log *slog.Logger, origins []string, hooks Hooks) *Hub {
 }
 
 func (h *Hub) checkOrigin(r *http.Request) bool {
+	// Endpoint device sudah dilindungi DEVICE_TOKEN oleh middleware deviceAuth.
+	// Library WebSocket di ESP32 bisa mengirim header Origin sembarang
+	// (mis. http://<ip-backend>:8080), jadi jangan tolak berdasarkan Origin.
+	if strings.HasPrefix(r.URL.Path, "/ws/device") {
+		return true
+	}
+
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true // bukan browser (ESP32 / tools)

@@ -29,7 +29,7 @@ Password untuk masuk ke robot diatur di backend (`ROBOT_PASSWORD`, default `gren
 ## Fitur
 
 - **Beranda**: status koneksi, tombol Hubungkan robot (popup password), foto terakhir robot, dan kartu kondisi kebun (soil moisture, driver motor HW-039/BTS7960, status kamera) yang diperbarui tiap 5 detik.
-- **Controller** (terkunci sampai robot terhubung): tombol maju/mundur (motor BTS7960; tombol belok nonaktif karena baru 1 modul), kalibrasi servo PCA9685 (servo sinkron CH0+CH1 dan servo terpisah CH2), servo probe tanah (angkat/turunkan), servo kamera (kiri/kanan), kontrol **Vision AI** (target + mulai/hentikan + foto & analisis sekarang), riwayat perintah.
+- **Controller** (terkunci sampai robot terhubung): tuas analog untuk maju/mundur dengan kecepatan proporsional yang posisinya terkunci (motor terus berjalan sampai tombol **Berhenti** ditekan; motor BTS7960, belok nonaktif karena baru 1 modul), kalibrasi servo PCA9685 (servo sinkron CH0+CH1 dan servo terpisah CH2), servo probe tanah (angkat/turunkan), servo kamera (kiri/kanan), kontrol **Vision AI** (target + mulai/hentikan + foto & analisis sekarang), riwayat perintah.
 
 ## Struktur
 
@@ -46,7 +46,7 @@ src/
 │  ├─ PlantMonitorCard.tsx
 │  ├─ SensorCard.tsx
 │  └─ controller/
-│     ├─ DPad.tsx
+│     ├─ AnalogStick.tsx
 │     └─ ServoControl.tsx
 ├─ context/RobotContext.tsx   # state koneksi global
 └─ lib/
@@ -68,7 +68,7 @@ Foto terakhir diambil dari endpoint publik `GET /api/snapshots/latest`, jadi kar
 ## Perintah yang dikirim ke robot
 
 ```ts
-{ type: "move", dir: "forward" | "backward" | "left" | "right" | "stop" }
+{ type: "move", dir: "forward" | "backward" | "left" | "right" | "stop", speed?: number }
 { type: "probe", dir: "up" | "down" }
 { type: "camera", dir: "left" | "right" }
 { type: "servo", sync?: number, aux?: number }
@@ -76,7 +76,7 @@ Foto terakhir diambil dari endpoint publik `GET /api/snapshots/latest`, jadi kar
 { type: "capture" }
 ```
 
-Tombol arah mengirim arah saat ditekan dan `stop` saat dilepas. `ai` dan `capture` ditangani ESP32-CAM; sisanya oleh ESP32 Dev.
+Tuas analog mengirim arah dan `speed` (0–255) sesuai posisinya: semakin jauh dari tengah, semakin cepat. Posisi terakhir dikunci, jadi motor tetap berjalan setelah tuas dilepas; UI hanya mengirim `stop` saat tombol **Berhenti** ditekan, saat halaman ditinggalkan, atau saat koneksi putus. `ai` dan `capture` ditangani ESP32-CAM; sisanya oleh ESP32 Dev.
 
 ## Catatan
 

@@ -10,8 +10,11 @@ const POLL_MS = 5000;
 function Bar({ value, tone }: { value: number; tone: string }) {
   const safe = Math.max(0, Math.min(100, value));
   return (
-    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-stone-200">
-      <div className={`h-full rounded-full ${tone}`} style={{ width: `${safe}%` }} />
+    <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+      <div
+        className={`h-full rounded-full transition-[width] duration-500 ${tone}`}
+        style={{ width: `${safe}%` }}
+      />
     </div>
   );
 }
@@ -69,73 +72,99 @@ export default function SensorCard() {
   return (
     <section
       aria-labelledby="sensor-title"
-      className="rounded-2xl border border-forest-900/10 bg-white p-5"
+      className="rounded-3xl border border-white/10 bg-olive-900/50 p-6 shadow-panel"
     >
       <div className="flex items-center justify-between gap-3">
-        <h2 id="sensor-title" className="font-display text-lg font-bold text-forest-900">
-          Kondisi kebun
-        </h2>
+        <div>
+          <h2
+            id="sensor-title"
+            className="font-display text-lg font-bold text-cream"
+          >
+            Kondisi kebun
+          </h2>
+          <p className="mt-0.5 text-sm text-cream/50">
+            Pembacaan terakhir dari node ESP32.
+          </p>
+        </div>
         <span
-          className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-            data ? "text-forest-700" : "text-stone-500"
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+            data
+              ? "border-olive-300/30 bg-olive-500/15 text-olive-200"
+              : "border-white/10 bg-white/[0.04] text-cream/50"
           }`}
         >
-          <Radio className={`size-3.5 ${data ? "" : "opacity-40"}`} aria-hidden="true" />
+          <Radio
+            className={`size-3.5 ${data ? "" : "opacity-40"}`}
+            aria-hidden="true"
+          />
           {data ? "Live" : offline ? "Menunggu robot" : "Memuat..."}
         </span>
       </div>
 
-      <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-        <div>
-          <dt className="flex items-center gap-1.5 text-sm text-stone-600">
-            <Sprout className="size-4 text-forest-600" aria-hidden="true" />
+      <dl className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-2xl border border-white/5 bg-ink/40 p-4">
+          <dt className="flex items-center gap-1.5 text-sm text-cream/50">
+            <Sprout className="size-4 text-olive-300" aria-hidden="true" />
             Kelembapan tanah
           </dt>
-          <dd className="mt-1 font-display text-2xl font-bold text-forest-900">
+          <dd className="mt-1 font-display text-3xl font-bold text-cream">
             {data ? `${Math.round(soil)}%` : "—"}
           </dd>
-          <Bar value={soil} tone="bg-forest-600" />
+          <Bar value={soil} tone="bg-gradient-to-r from-gold-dark via-gold to-gold-light" />
+          <p className="mt-2 text-xs text-cream/50">
+            {data ? `ADC ${data.soilRaw}` : "Menunggu data sensor"}
+          </p>
         </div>
 
-        <div>
-          <dt className="flex items-center gap-1.5 text-sm text-stone-600">
-            <Cog className="size-4 text-forest-600" aria-hidden="true" />
+        <div className="rounded-2xl border border-white/5 bg-ink/40 p-4">
+          <dt className="flex items-center gap-1.5 text-sm text-cream/50">
+            <Cog className="size-4 text-olive-300" aria-hidden="true" />
             Driver motor HW-039
           </dt>
-          <dd className="mt-1 font-display text-2xl font-bold text-forest-900">
+          <dd className="mt-1 font-display text-3xl font-bold text-cream">
             {motorText}
           </dd>
           <Bar
             value={(motorDuty / 255) * 100}
-            tone={motor < 0 ? "bg-amber-500" : "bg-forest-600"}
+            tone={
+              motor < 0
+                ? "bg-gradient-to-r from-alert/70 to-alert"
+                : "bg-gradient-to-r from-olive-500 to-olive-300"
+            }
           />
-          <p className="mt-1 text-xs text-stone-500">
+          <p className="mt-2 text-xs text-cream/50">
             BTS7960 &middot; PWM {data ? `${motorDuty}/255` : "—"}
           </p>
         </div>
       </dl>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-stone-200 pt-3 text-center text-xs text-stone-600 sm:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 gap-4 border-t border-white/[0.07] pt-4 text-center text-xs text-cream/55 sm:grid-cols-4">
         <div>
-          <div className="font-semibold text-forest-900">{data ? `${data.sync}°` : "—"}</div>
+          <div className="font-mono text-sm font-semibold text-cream">
+            {data ? `${data.sync}°` : "—"}
+          </div>
           Servo utama
         </div>
         <div>
-          <div className="font-semibold text-forest-900">{data ? `${data.aux}°` : "—"}</div>
+          <div className="font-mono text-sm font-semibold text-cream">
+            {data ? `${data.aux}°` : "—"}
+          </div>
           Servo aux
         </div>
         <div>
-          <div className="font-semibold text-forest-900">
+          <div className="font-mono text-sm font-semibold text-cream">
             {data ? `${motorTarget > 0 ? "+" : ""}${motorTarget}` : "—"}
           </div>
           Target motor
         </div>
         <div>
-          <div className="flex items-center justify-center gap-1 font-semibold text-forest-900">
+          <div className="flex items-center justify-center gap-1 font-semibold text-cream">
             <Wifi className="size-3" aria-hidden="true" />
             {data ? (data.camOnline ? "Kamera siap" : "Kamera off") : "—"}
           </div>
-          {data?.camArmed && data.camTarget ? `Target: ${data.camTarget}` : "Status kamera"}
+          {data?.camArmed && data.camTarget
+            ? `Target: ${data.camTarget}`
+            : "Status kamera"}
         </div>
       </div>
     </section>

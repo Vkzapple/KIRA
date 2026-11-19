@@ -37,9 +37,9 @@ function StepButton({ label, icon, onStep }: StepButtonProps) {
       onPointerUp={stop}
       onPointerCancel={stop}
       onContextMenu={(e) => e.preventDefault()}
-      className="flex flex-1 touch-none select-none items-center justify-center gap-2 rounded-2xl bg-forest-700 px-4 py-4 font-semibold text-white hover:bg-forest-600 active:bg-forest-900"
+      className="flex flex-1 touch-none select-none items-center justify-center gap-2 whitespace-nowrap rounded-2xl border border-white/5 bg-olive-800 px-3 py-4 text-sm font-semibold text-cream transition-colors hover:border-gold/40 hover:bg-olive-700 active:bg-olive-900"
     >
-      {icon}
+      <span className="text-gold">{icon}</span>
       {label}
     </button>
   );
@@ -54,9 +54,9 @@ interface Props {
 
 export default function ServoControl({ title, hint, a, b }: Props) {
   return (
-    <section className="rounded-2xl border border-forest-900/10 bg-white p-5">
-      <h3 className="font-display text-lg font-bold text-forest-900">{title}</h3>
-      <p className="mt-0.5 text-sm text-stone-600">{hint}</p>
+    <section className="rounded-3xl border border-white/10 bg-olive-900/50 p-5 shadow-panel">
+      <h3 className="font-display text-lg font-bold text-cream">{title}</h3>
+      <p className="mt-0.5 text-sm text-cream/60">{hint}</p>
       <div className="mt-4 flex gap-3">
         <StepButton {...a} />
         <StepButton {...b} />

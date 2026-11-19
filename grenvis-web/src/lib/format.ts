@@ -28,7 +28,9 @@ export function describeCommand(cmd: RobotCommand): string {
         right: "Belok kanan",
         stop: "Berhenti",
       }[cmd.dir];
-      return `Gerak: ${label}`;
+      const speed =
+        cmd.speed != null && cmd.dir !== "stop" ? ` · ${cmd.speed}/255` : "";
+      return `Gerak: ${label}${speed}`;
     }
     case "probe":
       return cmd.dir === "up" ? "Probe tanah: naik" : "Probe tanah: turun";
