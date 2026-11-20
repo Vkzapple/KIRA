@@ -1,4 +1,4 @@
-# GRENVIS — Web + Backend + ESP32 Dev + ESP32-CAM
+# KIRA — Web + Backend + ESP32 Dev + ESP32-CAM
 
 Sistem pemantauan tanaman dan kendali robot:
 
@@ -16,7 +16,7 @@ Sistem pemantauan tanaman dan kendali robot:
                     └──────────────┬───────────────┘
                           REST + WebSocket
                     ┌──────────────▼───────────────┐
-                    │  grenvis-server (Go :8080)   │
+                    │  kira-server (Go :8080)   │
                     │  • /ws/dashboard             │
                     │  • /ws/device                │
                     │  • simpan telemetry/foto     │
@@ -40,8 +40,8 @@ Kedua ESP32 terhubung sendiri-sendiri ke backend. Perintah dari browser disiarka
 ## 1. Struktur repo
 
 ```
-grenvis-web/                    -> frontend Next.js
-grenvis-server/                 -> backend Go + chi
+kira-web/                    -> frontend Next.js
+kira-server/                 -> backend Go + chi
   cmd/server/main.go            -> entrypoint
   internal/httpapi/             -> REST + auth
   internal/ws/hub.go            -> hub WebSocket
@@ -59,7 +59,7 @@ README.md
 Butuh **Go 1.23+** (repo diuji dengan Go 1.27).
 
 ```bash
-cd grenvis-server
+cd kira-server
 copy .env.example .env      # Windows; Linux/macOS: cp .env.example .env
 go mod tidy
 go run ./cmd/server
@@ -72,7 +72,7 @@ Isi `.env` minimal:
 ```dotenv
 ADDR=:8080
 CORS_ORIGINS=http://localhost:3000
-ROBOT_PASSWORD=grenvis123
+ROBOT_PASSWORD=kira123
 DEVICE_TOKEN=change-me-device-token
 PUBLIC_BASE_URL=http://localhost:8080
 ```
@@ -109,8 +109,8 @@ Device mengirim token lewat header `X-Device-Token` (HTTP) atau query `?token=` 
 ## 3. Supabase
 
 1. Buat project di <https://supabase.com>.
-2. Buka **SQL Editor**, tempel isi `grenvis-server/supabase/schema.sql`, jalankan.
-   Skrip ini membuat tabel `devices`, `telemetry`, `snapshots`, `detections`, mengaktifkan RLS, dan membuat bucket Storage publik `grenvis-snapshots`.
+2. Buka **SQL Editor**, tempel isi `kira-server/supabase/schema.sql`, jalankan.
+   Skrip ini membuat tabel `devices`, `telemetry`, `snapshots`, `detections`, mengaktifkan RLS, dan membuat bucket Storage publik `kira-snapshots`.
 
    > Kalau log backend menampilkan `PGRST205 Could not find the table 'public.telemetry'`,
    > berarti skrip ini belum dijalankan di project Supabase yang dipakai `.env`.
@@ -124,7 +124,7 @@ Device mengirim token lewat header `X-Device-Token` (HTTP) atau query `?token=` 
 ```dotenv
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
-SUPABASE_BUCKET=grenvis-snapshots
+SUPABASE_BUCKET=kira-snapshots
 PUBLIC_BASE_URL=https://api.domain-anda.com
 ```
 
@@ -137,7 +137,7 @@ Restart backend; `/api/health` akan menampilkan `"store":"supabase"`.
 ## 4. Menjalankan frontend
 
 ```bash
-cd grenvis-web
+cd kira-web
 npm install
 npm run dev
 ```
@@ -146,7 +146,7 @@ npm run dev
 
 ```dotenv
 NEXT_PUBLIC_API_URL=http://localhost:8080
-NEXT_PUBLIC_MOCK_PASSWORD=grenvis123   # hanya untuk mode mock
+NEXT_PUBLIC_MOCK_PASSWORD=kira123   # hanya untuk mode mock
 ```
 
 Buka <http://localhost:3000>, klik **Hubungkan robot**, masukkan `ROBOT_PASSWORD`.
@@ -259,7 +259,7 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 #define BACKEND_HOST  "192.168.1.10"   // IP laptop/server backend
 #define BACKEND_PORT  8080
 #define DEVICE_TOKEN  "change-me-device-token"
-#define DEVICE_ID     "grenvis-01-dev"
+#define DEVICE_ID     "kira-01-dev"
 ```
 
 Kalibrasi sensor (lihat Serial Monitor, print tiap 5 detik):
@@ -274,7 +274,7 @@ Cara kalibrasi:
 2. Lihat baris `[SENSOR] soil raw=...`.
 3. Catat nilai kering dan basah, masukkan ke 2 define di atas.
 
-Board: **ESP32 Dev Module**. **Tidak ada dashboard/web server lokal di ESP32**; semua kontrol dan tampilan ada di website GRENVIS melalui backend.
+Board: **ESP32 Dev Module**. **Tidak ada dashboard/web server lokal di ESP32**; semua kontrol dan tampilan ada di website KIRA melalui backend.
 
 ### ESP32-CAM (`ESP32CAMVision.ino`)
 
@@ -285,7 +285,7 @@ Board: **ESP32 Dev Module**. **Tidak ada dashboard/web server lokal di ESP32**; 
 #define BACKEND_HOST  "192.168.1.10"
 #define BACKEND_PORT  8080
 #define DEVICE_TOKEN  "change-me-device-token"
-#define DEVICE_ID     "grenvis-01-cam"
+#define DEVICE_ID     "kira-01-cam"
 ```
 
 Roboflow:
@@ -385,8 +385,8 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 ### Server → dashboard
 
 ```json
-{"type":"ready","deviceOnline":true,"deviceId":"grenvis-01-dev","telemetry":{...}}
-{"type":"device_status","deviceId":"grenvis-01-cam","online":true}
+{"type":"ready","deviceOnline":true,"deviceId":"kira-01-dev","telemetry":{...}}
+{"type":"device_status","deviceId":"kira-01-cam","online":true}
 {"type":"telemetry","telemetry":{...},"deviceOnline":true}
 {"type":"snapshot","snapshot":{"id":"...","imageUrl":"https://...","capturedAt":"..."}}
 {"type":"detection","detection":{"class":"person","confidence":0.87,"imageUrl":"..."}}
@@ -395,7 +395,7 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 ### Device → server
 
 ```json
-{"type":"hello","deviceId":"grenvis-01-dev","kind":"esp32dev","firmware":"1.3.0","ip":"192.168.1.50"}
+{"type":"hello","deviceId":"kira-01-dev","kind":"esp32dev","firmware":"1.3.0","ip":"192.168.1.50"}
 {"type":"telemetry","soil":48,"soilRaw":1980,"distance":35,"distanceValid":true,"obstacle":false,
  "sync":90,"aux":90,
  "motor":180,"motorTarget":180,"motorLeft":180,"motorRight":180,
@@ -415,7 +415,7 @@ Status kamera (`camOnline`, `camArmed`, `camBusy`, `camTarget`) hanya ditulis ol
 | Website: "Server aktif, tapi robot belum terhubung" | ESP32 belum konek, `BACKEND_HOST` salah, atau token beda |
 | `[WS] backend terputus` berulang | Backend tidak jalan / firewall memblokir port 8080 / salah IP |
 | `ws device upgrade gagal ... request origin not allowed` | Versi backend lama. Build/restart backend terbaru; endpoint device sekarang tidak memakai pengecekan Origin browser |
-| `/api/telemetry/latest` 502 + log `PGRST205` | Tabel Supabase belum dibuat. Jalankan `grenvis-server/supabase/schema.sql` di SQL Editor |
+| `/api/telemetry/latest` 502 + log `PGRST205` | Tabel Supabase belum dibuat. Jalankan `kira-server/supabase/schema.sql` di SQL Editor |
 | Login selalu 401 | `ROBOT_PASSWORD` di `.env` backend berbeda |
 | Upload foto 401 | `DEVICE_TOKEN` firmware ≠ `.env` backend |
 | Foto tidak muncul | Cek `PUBLIC_BASE_URL` (mode lokal) atau bucket Storage (Supabase) |

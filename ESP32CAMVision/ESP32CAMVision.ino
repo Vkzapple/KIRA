@@ -5,14 +5,14 @@
      1. Inisialisasi kamera OV2640 (AI Thinker)
      2. Ambil frame -> kirim ke Roboflow Hosted Inference (HTTPS)
      3. Simpan & unggah capture HANYA jika kelas target terdeteksi
-     4. WebSocket client ke backend GRENVIS sebagai device:
+     4. WebSocket client ke backend KIRA sebagai device:
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
         - terima perintah: ai (arm/stop/target), capture, cam (legacy)
         - kirim ai_status + detection
      5. Upload foto ke backend (POST /api/snapshots) supaya tersimpan
         di Supabase Storage dan tampil di website
      6. Tidak ada dashboard/server HTTP di ESP32-CAM. Semua kontrol dan
-        tampilan ada di website GRENVIS lewat backend.
+        tampilan ada di website KIRA lewat backend.
 
    Library:
      - ArduinoJson 7.x
@@ -38,13 +38,13 @@
 #define WIFI_SSID "GANTI_SSID"
 #define WIFI_PASS "GANTI_PASSWORD"
 
-// ---- Backend GRENVIS ----
-// Isi IP/host laptop atau server tempat `grenvis-server` berjalan.
+// ---- Backend KIRA ----
+// Isi IP/host laptop atau server tempat `kira-server` berjalan.
 #define BACKEND_HOST  "192.168.1.10"
 #define BACKEND_PORT  8080
 #define DEVICE_TOKEN  "change-me-device-token"   // harus sama dengan .env backend
-#define DEVICE_ID     "grenvis-01-cam"
-#define DEVICE_NAME   "GRENVIS CAM"
+#define DEVICE_ID     "kira-01-cam"
+#define DEVICE_NAME   "KIRA CAM"
 #define FIRMWARE_VER  "1.0.0"
 
 // ---- Roboflow ----

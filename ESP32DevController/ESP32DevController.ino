@@ -12,12 +12,12 @@
         Tidak ada sensor hujan di node ini.
      3. Sensor soil moisture (analog, ADC1)
      4. Sensor ultrasonik HC-SR04 untuk mendeteksi objek di depan robot
-     5. Konek ke backend GRENVIS (Go) lewat WebSocket sebagai device:
+     5. Konek ke backend KIRA (Go) lewat WebSocket sebagai device:
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
         - kirim telemetry tiap 2 detik
         - terima perintah: move, servo, probe, camera
      6. Tidak ada dashboard/server HTTP di ESP32. Semua tampilan dan
-        kontrol ada di website GRENVIS lewat backend.
+        kontrol ada di website KIRA lewat backend.
      7. ESP32-CAM konek sendiri ke backend yang sama (lihat sketch CAM)
 
    Library (Library Manager):
@@ -40,13 +40,13 @@
 #define WIFI_SSID "GANTI_SSID"
 #define WIFI_PASS "GANTI_PASSWORD"
 
-// ---- Backend GRENVIS ----
-// Isi IP/host laptop atau server tempat `grenvis-server` berjalan.
+// ---- Backend KIRA ----
+// Isi IP/host laptop atau server tempat `kira-server` berjalan.
 #define BACKEND_HOST  "192.168.1.10"
 #define BACKEND_PORT  8080
 #define DEVICE_TOKEN  "change-me-device-token"   // harus sama dengan .env backend
-#define DEVICE_ID     "grenvis-01-dev"
-#define DEVICE_NAME   "GRENVIS Dev"
+#define DEVICE_ID     "kira-01-dev"
+#define DEVICE_NAME   "KIRA Dev"
 #define FIRMWARE_VER  "1.4.0"
 
 // ---- Pin ----
