@@ -28,6 +28,12 @@ export interface PlantSnapshot {
 export interface RobotTelemetry {
   soil: number;
   soilRaw: number;
+  /** Jarak objek di depan dari HC-SR04 (cm). 0 bila tidak ada pantulan. */
+  distance?: number;
+  /** false bila sensor ultrasonik tidak menerima pantulan. */
+  distanceValid?: boolean;
+  /** true bila objek lebih dekat dari ambang firmware (default 20 cm). */
+  obstacle?: boolean;
   /** Sudut servo CH0+CH1 (bergerak bersamaan). */
   sync: number;
   /** Sudut servo CH2 (independen). */

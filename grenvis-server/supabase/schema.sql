@@ -26,6 +26,9 @@ create table if not exists public.telemetry (
   device_id    text not null,
   soil_pct     int,
   soil_raw     int,
+  distance_cm  int,
+  distance_valid boolean not null default false,
+  obstacle     boolean not null default false,
   sync_angle   int,
   aux_angle    int,
   motor        int,
@@ -55,6 +58,11 @@ alter table public.telemetry add column if not exists motor_left int;
 alter table public.telemetry add column if not exists motor_right int;
 alter table public.telemetry add column if not exists motor_left_target int;
 alter table public.telemetry add column if not exists motor_right_target int;
+
+-- Migrasi kolom sensor ultrasonik HC-SR04 (deteksi objek di depan).
+alter table public.telemetry add column if not exists distance_cm int;
+alter table public.telemetry add column if not exists distance_valid boolean not null default false;
+alter table public.telemetry add column if not exists obstacle boolean not null default false;
 
 -- Modul L298N adalah driver 2 motor DC (kanal A = kiri, kanal B = kanan), bukan sensor hujan.
 -- Kolom rain_pct/rain_raw/rain_wet tidak dipakai lagi. Database lama boleh

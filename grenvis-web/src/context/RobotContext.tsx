@@ -11,11 +11,17 @@ import {
   type ReactNode,
 } from "react";
 import { robotClient } from "@/lib/robot-client";
-import type { ConnectionStatus, RobotCommand } from "@/lib/types";
+import type {
+  ConnectionStatus,
+  RobotCommand,
+  RobotTelemetry,
+} from "@/lib/types";
 
 interface RobotContextValue {
   status: ConnectionStatus;
   error: string | null;
+  /** Telemetry live (diperbarui tiap ~2 detik saat terhubung). */
+  telemetry: RobotTelemetry | null;
   connect: (password: string) => Promise<boolean>;
   disconnect: () => void;
   resetError: () => void;
@@ -27,6 +33,7 @@ const RobotContext = createContext<RobotContextValue | null>(null);
 export function RobotProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [error, setError] = useState<string | null>(null);
+  const [telemetry, setTelemetry] = useState<RobotTelemetry | null>(null);
   const statusRef = useRef<ConnectionStatus>("disconnected");
 
   const updateStatus = useCallback((next: ConnectionStatus) => {
@@ -35,8 +42,13 @@ export function RobotProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    robotClient.onClose(() => updateStatus("disconnected"));
+    robotClient.onClose(() => {
+      updateStatus("disconnected");
+      setTelemetry(null);
+    });
   }, [updateStatus]);
+
+  useEffect(() => robotClient.onTelemetry(setTelemetry), []);
 
   const connect = useCallback(
     async (password: string) => {
@@ -58,6 +70,7 @@ export function RobotProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(() => {
     robotClient.disconnect();
     updateStatus("disconnected");
+    setTelemetry(null);
   }, [updateStatus]);
 
   const resetError = useCallback(() => {
@@ -71,8 +84,16 @@ export function RobotProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ status, error, connect, disconnect, resetError, send }),
-    [status, error, connect, disconnect, resetError, send]
+    () => ({
+      status,
+      error,
+      telemetry,
+      connect,
+      disconnect,
+      resetError,
+      send,
+    }),
+    [status, error, telemetry, connect, disconnect, resetError, send]
   );
 
   return <RobotContext.Provider value={value}>{children}</RobotContext.Provider>;

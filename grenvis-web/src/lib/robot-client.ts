@@ -1,4 +1,4 @@
-import type { PlantSnapshot, RobotCommand } from "./types";
+import type { PlantSnapshot, RobotCommand, RobotTelemetry } from "./types";
 
 /**
  * Kontrak antara UI dan robot.
@@ -11,6 +11,8 @@ export interface RobotClient {
   send(cmd: RobotCommand): void;
   /** Dipanggil saat koneksi terputus dari sisi robot/jaringan */
   onClose(cb: () => void): void;
+  /** Telemetry live dari robot; mengembalikan fungsi untuk berhenti berlangganan. */
+  onTelemetry(cb: (t: RobotTelemetry) => void): () => void;
   getLatestSnapshot(): Promise<PlantSnapshot | null>;
 }
 
@@ -26,6 +28,9 @@ export const mockRobotClient: RobotClient = {
   },
   disconnect() {},
   onClose() {},
+  onTelemetry() {
+    return () => {};
+  },
   send(cmd) {
     console.debug("[mock robot] perintah dikirim:", cmd);
   },
@@ -82,6 +87,7 @@ class WebSocketRobotClient implements RobotClient {
   private ws: WebSocket | null = null;
   private token: string | null = null;
   private closeHandlers = new Set<() => void>();
+  private telemetryHandlers = new Set<(t: RobotTelemetry) => void>();
   private manualClose = false;
 
   async connect(password: string): Promise<void> {
@@ -146,11 +152,19 @@ class WebSocketRobotClient implements RobotClient {
           type?: string;
           deviceOnline?: boolean;
           message?: string;
+          telemetry?: RobotTelemetry;
         };
         try {
           msg = JSON.parse(String(event.data));
         } catch {
           return;
+        }
+
+        if (
+          msg.telemetry &&
+          (msg.type === "telemetry" || msg.type === "ready")
+        ) {
+          this.notifyTelemetry(msg.telemetry);
         }
 
         if (msg.type === "ready" && !settled) {
@@ -240,6 +254,23 @@ class WebSocketRobotClient implements RobotClient {
 
   onClose(cb: () => void) {
     this.closeHandlers.add(cb);
+  }
+
+  onTelemetry(cb: (t: RobotTelemetry) => void) {
+    this.telemetryHandlers.add(cb);
+    return () => {
+      this.telemetryHandlers.delete(cb);
+    };
+  }
+
+  private notifyTelemetry(t: RobotTelemetry) {
+    this.telemetryHandlers.forEach((cb) => {
+      try {
+        cb(t);
+      } catch {
+        /* handler error tidak boleh memutus loop */
+      }
+    });
   }
 
   send(cmd: RobotCommand) {

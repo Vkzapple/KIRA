@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Cog, Radio, Sprout, Wifi } from "lucide-react";
+import { Cog, Radar, Radio, Sprout, Wifi } from "lucide-react";
 import { API_URL } from "@/lib/robot-client";
+import { useRobot } from "@/context/RobotContext";
+import ProximityMeter from "@/components/ProximityMeter";
 import type { RobotTelemetry } from "@/lib/types";
 
 const POLL_MS = 5000;
+/** Ambang "bahaya" HC-SR04 di firmware. */
+const OBSTACLE_CM = 20;
 
 function Bar({ value, tone }: { value: number; tone: string }) {
   const safe = Math.max(0, Math.min(100, value));
@@ -19,9 +23,10 @@ function Bar({ value, tone }: { value: number; tone: string }) {
   );
 }
 
-/** Kartu ringkas kondisi sensor: kelembapan tanah, driver motor L298N, dan status kamera. */
+/** Kartu ringkas kondisi sensor: kelembapan tanah, driver motor L298N, jarak ultrasonik, dan status kamera. */
 export default function SensorCard() {
-  const [data, setData] = useState<RobotTelemetry | null>(null);
+  const { telemetry } = useRobot();
+  const [polled, setPolled] = useState<RobotTelemetry | null>(null);
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
@@ -35,12 +40,12 @@ export default function SensorCard() {
         });
         if (!alive) return;
         if (res.status === 204) {
-          setData(null);
+          setPolled(null);
           setOffline(true);
           return;
         }
         if (!res.ok) throw new Error(String(res.status));
-        setData((await res.json()) as RobotTelemetry);
+        setPolled((await res.json()) as RobotTelemetry);
         setOffline(false);
       } catch {
         if (alive) setOffline(true);
@@ -56,6 +61,9 @@ export default function SensorCard() {
   }, []);
 
   if (!API_URL) return null;
+
+  // Saat terhubung, pakai telemetry live dari WebSocket (tiap ~2 detik).
+  const data = telemetry ?? polled;
 
   const soil = data?.soil ?? 0;
   const left = data?.motorLeft ?? data?.motor ?? 0;
@@ -145,6 +153,26 @@ export default function SensorCard() {
           </p>
         </div>
       </dl>
+
+      <div className="mt-4 rounded-2xl border border-white/5 bg-ink/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-sm text-cream/50">
+            <Radar className="size-4 text-olive-300" aria-hidden="true" />
+            Jarak objek &middot; HC-SR04
+          </p>
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-cream/35">
+            depan robot
+          </span>
+        </div>
+        <div className="mt-3">
+          <ProximityMeter
+            compact
+            distance={data?.distance}
+            valid={data?.distanceValid}
+            threshold={OBSTACLE_CM}
+          />
+        </div>
+      </div>
 
       <div className="mt-5 grid grid-cols-2 gap-4 border-t border-white/[0.07] pt-4 text-center text-xs text-cream/55 sm:grid-cols-4">
         <div>

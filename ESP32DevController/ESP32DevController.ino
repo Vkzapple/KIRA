@@ -11,13 +11,14 @@
           Maju/mundur + belok pivot kiri/kanan
         Tidak ada sensor hujan di node ini.
      3. Sensor soil moisture (analog, ADC1)
-     4. Konek ke backend GRENVIS (Go) lewat WebSocket sebagai device:
+     4. Sensor ultrasonik HC-SR04 untuk mendeteksi objek di depan robot
+     5. Konek ke backend GRENVIS (Go) lewat WebSocket sebagai device:
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
         - kirim telemetry tiap 2 detik
         - terima perintah: move, servo, probe, camera
-     5. Tidak ada dashboard/server HTTP di ESP32. Semua tampilan dan
+     6. Tidak ada dashboard/server HTTP di ESP32. Semua tampilan dan
         kontrol ada di website GRENVIS lewat backend.
-     6. ESP32-CAM konek sendiri ke backend yang sama (lihat sketch CAM)
+     7. ESP32-CAM konek sendiri ke backend yang sama (lihat sketch CAM)
 
    Library (Library Manager):
      - Adafruit PWM Servo Driver Library  (otomatis tarik Adafruit BusIO)
@@ -46,12 +47,14 @@
 #define DEVICE_TOKEN  "change-me-device-token"   // harus sama dengan .env backend
 #define DEVICE_ID     "grenvis-01-dev"
 #define DEVICE_NAME   "GRENVIS Dev"
-#define FIRMWARE_VER  "1.3.0"
+#define FIRMWARE_VER  "1.4.0"
 
 // ---- Pin ----
 #define PIN_SDA      21
 #define PIN_SCL      22
 #define PIN_SOIL     34   // ADC1, input only
+#define PIN_ULTRASONIC_TRIG 5    // output trigger HC-SR04
+#define PIN_ULTRASONIC_ECHO 18   // input echo (wajib lewat pembagi tegangan)
 
 // ---- PCA9685 ----
 #define PCA_ADDR       0x40
@@ -76,6 +79,14 @@
 // Ukur sendiri: kering di udara, basah di air. Nilai di bawah = contoh umum.
 #define SOIL_DRY_RAW        2600
 #define SOIL_WET_RAW        1100
+
+// ---- HC-SR04: deteksi objek di depan robot ----
+// ECHO HC-SR04 mengeluarkan 5V. Turunkan ke 3.3V dengan pembagi 1k/2k
+// sebelum masuk GPIO 18, supaya ESP32 tidak rusak.
+#define ULTRASONIC_INTERVAL_MS 250    // jeda antar pembacaan
+#define ULTRASONIC_TIMEOUT_US  20000  // ±3.4 m; 0 = tidak ada pantulan
+#define ULTRASONIC_SAMPLES     3      // median dari 3 pantulan
+#define OBSTACLE_CM            20     // jarak aman (cm) sebelum dianggap penghalang
 
 // ---- Modul L298N: driver 2 motor DC (kanal A = kiri, kanal B = kanan) ----
 // ENA/ENB = PWM kecepatan, IN1..IN4 = arah. GND logic dan supply motor disatukan.
@@ -110,6 +121,11 @@ float auxNow  = SERVO_HOME, auxTarget  = SERVO_HOME;
 int soilRaw = 0;
 int soilPct = 0;
 
+// HC-SR04: jarak objek terdekat di depan (cm).
+int  distanceCm    = 0;
+bool distanceValid = false;
+bool obstacleNear  = false;
+
 bool backendUp = false;
 uint32_t lastTelemetry = 0;
 
@@ -126,6 +142,8 @@ uint32_t motorRightDeadUntil = 0;
 /* =========================== PROTOTYPES ============================= */
 
 void readSensors();
+void readUltrasonic();
+int  pingUltrasonic();
 void updateServos();
 void applyAllServos();
 void initMotor();
@@ -163,6 +181,12 @@ void setup() {
   analogReadResolution(12);
   analogSetPinAttenuation(PIN_SOIL, ADC_11db);
 
+  // Sensor ultrasonik HC-SR04
+  pinMode(PIN_ULTRASONIC_TRIG, OUTPUT);
+  pinMode(PIN_ULTRASONIC_ECHO, INPUT);
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+  Serial.println(F("[ULTRASONIK] HC-SR04 siap (TRIG=5, ECHO=18)"));
+
   // WiFi
   WiFi.mode(WIFI_STA);
   WiFi.setHostname("esp32-dev");
@@ -186,6 +210,7 @@ void setup() {
   startBackend();
 
   readSensors();
+  readUltrasonic();
   Serial.println(F("Siap. Menunggu koneksi backend..."));
 }
 
@@ -194,6 +219,7 @@ void setup() {
 void loop() {
   backend.loop();
   readSensors();
+  readUltrasonic();
   updateServos();
   updateMotor();
   sendTelemetry();
@@ -244,6 +270,69 @@ void readSensors() {
   if (millis() - lastPrint > 5000) {
     lastPrint = millis();
     Serial.printf("[SENSOR] soil raw=%d (%d%%)\n", soilRaw, soilPct);
+  }
+}
+
+/* ============================ ULTRASONIK ============================ */
+
+// Satu ping: pulsa trigger 10 us, lalu ukur lebar HIGH pada ECHO.
+// Mengembalikan jarak dalam cm, atau -1 kalau tidak ada pantulan.
+int pingUltrasonic() {
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(PIN_ULTRASONIC_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PIN_ULTRASONIC_TRIG, LOW);
+
+  unsigned long dur = pulseIn(PIN_ULTRASONIC_ECHO, HIGH, ULTRASONIC_TIMEOUT_US);
+  if (dur == 0) return -1;  // timeout: tidak ada objek dalam jangkauan
+  int cm = (int)lroundf((float)dur * 0.0343f / 2.0f);
+  if (cm < 2 || cm > 400) return -1;
+  return cm;
+}
+
+// Baca 3 kali lalu ambil median, supaya satu pantulan liar tidak
+// langsung memicu peringatan "objek dekat".
+void readUltrasonic() {
+  static uint32_t last = 0;
+  if (millis() - last < ULTRASONIC_INTERVAL_MS) return;
+  last = millis();
+
+  int samples[ULTRASONIC_SAMPLES];
+  int n = 0;
+  for (uint8_t i = 0; i < ULTRASONIC_SAMPLES; i++) {
+    int d = pingUltrasonic();
+    if (d > 0) samples[n++] = d;
+    if (i + 1 < ULTRASONIC_SAMPLES) delay(20);
+  }
+
+  if (n == 0) {
+    distanceCm = 0;
+    distanceValid = false;
+    obstacleNear = false;
+    return;
+  }
+
+  // Urutkan naik, lalu ambil nilai tengah.
+  for (int i = 1; i < n; i++) {
+    int key = samples[i];
+    int j = i - 1;
+    while (j >= 0 && samples[j] > key) {
+      samples[j + 1] = samples[j];
+      j--;
+    }
+    samples[j + 1] = key;
+  }
+
+  distanceCm = samples[n / 2];
+  distanceValid = true;
+  obstacleNear = distanceCm <= OBSTACLE_CM;
+
+  static uint32_t lastPrint = 0;
+  if (millis() - lastPrint > 5000) {
+    lastPrint = millis();
+    Serial.printf("[ULTRASONIK] %d cm%s\n", distanceCm,
+                  obstacleNear ? " (objek dekat!)" : "");
   }
 }
 
@@ -446,6 +535,9 @@ void sendTelemetry(bool force) {
   d["type"]        = "telemetry";
   d["soil"]        = soilPct;
   d["soilRaw"]     = soilRaw;
+  d["distance"]    = distanceValid ? distanceCm : 0;
+  d["distanceValid"] = distanceValid;
+  d["obstacle"]    = obstacleNear;
   d["sync"]        = (int)lroundf(syncNow);
   d["aux"]         = (int)lroundf(auxNow);
   d["motorLeft"]      = motorLeftNow;

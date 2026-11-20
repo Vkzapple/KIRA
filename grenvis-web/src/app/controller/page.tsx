@@ -9,15 +9,18 @@ import {
   ArrowUpToLine,
   Camera,
   Lock,
+  Radar,
   RotateCcw,
   RotateCw,
   ScanEye,
+  ShieldAlert,
   SlidersHorizontal,
   Square,
 } from "lucide-react";
 import { useRobot } from "@/context/RobotContext";
 import AnalogStick from "@/components/controller/AnalogStick";
 import ServoControl from "@/components/controller/ServoControl";
+import ProximityMeter from "@/components/ProximityMeter";
 import { describeCommand } from "@/lib/format";
 import type { MoveDir, RobotCommand } from "@/lib/types";
 
@@ -27,11 +30,14 @@ interface LogEntry {
   time: string;
 }
 
+/** Ambang "bahaya" HC-SR04 di firmware. */
+const OBSTACLE_CM = 20;
+
 const rangeStyle = (value: number): CSSProperties =>
   ({ "--range-progress": `${(value / 180) * 100}%` }) as CSSProperties;
 
 export default function ControllerPage() {
-  const { status, send } = useRobot();
+  const { status, send, telemetry } = useRobot();
   const [log, setLog] = useState<LogEntry[]>([]);
   const [target, setTarget] = useState("person");
   const [aiArmed, setAiArmed] = useState(false);
@@ -151,6 +157,56 @@ export default function ControllerPage() {
           </section>
 
           <div className="flex flex-col gap-6">
+            <section className="rounded-3xl border border-white/10 bg-olive-900/50 p-5 shadow-panel">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="flex items-center gap-2 font-display text-lg font-bold text-cream">
+                    <Radar className="size-5 text-gold" aria-hidden="true" />
+                    Radar jarak depan
+                  </h3>
+                  <p className="mt-1 text-sm text-cream/60">
+                    HC-SR04 mengukur objek di depan robot. Meter makin penuh
+                    saat objek makin dekat.
+                  </p>
+                </div>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    telemetry
+                      ? "border-olive-300/30 bg-olive-500/15 text-olive-200"
+                      : "border-white/10 bg-white/[0.04] text-cream/50"
+                  }`}
+                >
+                  <Activity
+                    className={`size-3.5 ${telemetry ? "" : "opacity-40"}`}
+                    aria-hidden="true"
+                  />
+                  {telemetry ? "Live" : "Menunggu"}
+                </span>
+              </div>
+
+              <div className="mt-4">
+                <ProximityMeter
+                  distance={telemetry?.distance}
+                  valid={telemetry?.distanceValid}
+                  threshold={OBSTACLE_CM}
+                />
+              </div>
+
+              {telemetry?.obstacle && (
+                <p
+                  role="alert"
+                  className="mt-4 flex items-start gap-2 rounded-2xl border border-alert/30 bg-alert/10 px-3 py-2.5 text-sm font-semibold text-red-200"
+                >
+                  <ShieldAlert
+                    className="mt-0.5 size-4 shrink-0"
+                    aria-hidden="true"
+                  />
+                  Objek lebih dekat dari {OBSTACLE_CM} cm. Jangan maju sebelum
+                  jalur aman.
+                </p>
+              )}
+            </section>
+
             <section className="rounded-3xl border border-white/10 bg-olive-900/50 p-5 shadow-panel">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
