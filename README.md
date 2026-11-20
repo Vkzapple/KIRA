@@ -235,9 +235,15 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 | Soil moisture | VCC | 3V3 |
 | | GND | GND |
 | | AO | **GPIO 34** (ADC1) |
+| HC-SR04 (ultrasonik) | VCC | 5V |
+| | GND | GND |
+| | TRIG | **GPIO 5** |
+| | ECHO | **GPIO 18** (lewat pembagi tegangan 1k/2k ke 3.3V) |
 
 - GPIO 34 hanya input, tanpa pull-up — memang untuk ADC.
 - Gunakan **ADC1** (32–39) karena ADC2 tidak bisa dipakai saat WiFi aktif.
+- HC-SR04 mengukur jarak hambatan di depan robot (cm). Output ECHO 5V diturunkan ke 3.3V dengan pembagi tegangan 1k/2k sebelum masuk GPIO 18 supaya ESP32 tidak rusak. Jangkauan efektif ±2–400 cm, timeout 20 ms (±3.4 m).
+- Ambang "objek dekat" default 20 cm (`OBSTACLE_CM`); firmware mengirim `distance`, `distanceValid`, `obstacle` tiap telemetry. Monitoring jarak ditampilkan di beranda (SensorCard) dan Controller (ProximityMeter).
 - Tidak ada sensor hujan pada node ini. Modul L298N dipakai sebagai driver 2 motor DC.
 
 ---
@@ -390,7 +396,8 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 
 ```json
 {"type":"hello","deviceId":"grenvis-01-dev","kind":"esp32dev","firmware":"1.3.0","ip":"192.168.1.50"}
-{"type":"telemetry","soil":48,"soilRaw":1980,"sync":90,"aux":90,
+{"type":"telemetry","soil":48,"soilRaw":1980,"distance":35,"distanceValid":true,"obstacle":false,
+ "sync":90,"aux":90,
  "motor":180,"motorTarget":180,"motorLeft":180,"motorRight":180,
  "motorLeftTarget":180,"motorRightTarget":180,"rssi":-55,"uptime":300}
 {"type":"ai_status","armed":true,"busy":false,"target":"person"}
