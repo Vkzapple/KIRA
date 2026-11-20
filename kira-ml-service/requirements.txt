@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+joblib
+torch
+torchvision
+timm
+pillow
+numpy
+scikit-learn
+xgboost
