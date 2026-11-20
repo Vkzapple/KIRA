@@ -35,8 +35,8 @@
 
 /* ============================ KONFIGURASI ============================ */
 
-#define WIFI_SSID "GANTI_SSID"
-#define WIFI_PASS "GANTI_PASSWORD"
+#define WIFI_SSID "R-408"
+#define WIFI_PASS "*ruang408"
 
 // ---- Backend KIRA ----
 // Isi IP/host laptop atau server tempat `kira-server` berjalan.
@@ -48,14 +48,14 @@
 #define FIRMWARE_VER  "1.0.0"
 
 // ---- Roboflow ----
-#define ROBOFLOW_API_KEY  "ISI_API_KEY_ROBOFLOW"
-#define ROBOFLOW_MODEL    "nama-model-anda"   // contoh: "trash-detector"
+#define ROBOFLOW_API_KEY  "FIJ0iIYkAnuW2HBD4v1N"
+#define ROBOFLOW_MODEL    "plant-disease-detection-rhvjq"
 #define ROBOFLOW_VERSION  "1"
 #define ROBOFLOW_CONF     "40"                // confidence threshold (0-100)
 #define ROBOFLOW_TIMEOUT  12000               // ms
 
 // ---- Perilaku ----
-#define TARGET_DEFAULT      "person"   // pisah koma: "person,bottle"
+#define TARGET_DEFAULT      "Tomato___Early_blight,Tomato___Late_blight"   // sesuaikan dengan class model Roboflow
 #define AUTO_ARM_ON_BOOT    false      // true = langsung scan otomatis
 #define SCAN_INTERVAL_MS    8000       // jeda antar scan otomatis
 #define SCAN_COOLDOWN_MS    1500       // jeda setelah satu scan selesai
