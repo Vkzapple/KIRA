@@ -1,5 +1,4 @@
-fastapi
-uvicorn
+flask
 joblib
 torch
 torchvision
@@ -8,3 +7,4 @@ pillow
 numpy
 scikit-learn
 xgboost
+requests
