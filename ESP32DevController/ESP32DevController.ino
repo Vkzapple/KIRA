@@ -37,14 +37,14 @@
 
 /* ============================ KONFIGURASI ============================ */
 
-#define WIFI_SSID "GANTI_SSID"
-#define WIFI_PASS "GANTI_PASSWORD"
+#define WIFI_SSID "R-408"
+#define WIFI_PASS "*ruang408"
 
 // ---- Backend KIRA ----
 // Isi IP/host laptop atau server tempat `kira-server` berjalan.
-#define BACKEND_HOST  "192.168.1.10"
+#define BACKEND_HOST  "10.4.2.95"
 #define BACKEND_PORT  8080
-#define DEVICE_TOKEN  "change-me-device-token"   // harus sama dengan .env backend
+#define DEVICE_TOKEN  "kira123"   // harus sama dengan .env backend
 #define DEVICE_ID     "kira-01-dev"
 #define DEVICE_NAME   "KIRA Dev"
 #define FIRMWARE_VER  "1.4.0"
