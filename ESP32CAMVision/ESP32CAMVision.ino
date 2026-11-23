@@ -48,7 +48,7 @@
 #define FIRMWARE_VER  "1.0.0"
 
 // ---- Roboflow ----
-#define ROBOFLOW_API_KEY  "FIJ0iIYkAnuW2HBD4v1N"
+#define ROBOFLOW_API_KEY  "elNAxsVbFhdw5ygczkyh"
 #define ROBOFLOW_MODEL    "plant-disease-detection-rhvjq"
 #define ROBOFLOW_VERSION  "1"
 #define ROBOFLOW_CONF     "40"                // confidence threshold (0-100)
