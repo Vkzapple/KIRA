@@ -147,7 +147,13 @@ npm run dev
 ```dotenv
 NEXT_PUBLIC_API_URL=http://localhost:8080
 NEXT_PUBLIC_MOCK_PASSWORD=kira123   # hanya untuk mode mock
+
+# Roboflow Workflows untuk halaman /ml-test (server-side, jangan pakai NEXT_PUBLIC_)
+ROBOFLOW_API_KEY=xxxxxxxxxxxxxxxx
+ROBOFLOW_WORKFLOW_URL=https://serverless.roboflow.com/evelly-khanza/workflows/leaf-detection-and-count-1795394058974
 ```
+
+Halaman **/ml-test** mengirim gambar (upload atau URL) ke route Next.js `/api/predict`, lalu route itu memanggil Roboflow Workflows dengan JSON. API key tidak pernah dikirim ke browser.
 
 Buka <http://localhost:3000>, klik **Hubungkan robot**, masukkan `ROBOT_PASSWORD`.
 
@@ -344,6 +350,26 @@ Content-Type: application/x-www-form-urlencoded
 
 Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan `setCACert()`.
 
+### Website — Roboflow Workflows
+
+Halaman `/ml-test` memakai **Workflows serverless** (bukan `detect.roboflow.com`), dengan request JSON:
+
+```http
+POST https://serverless.roboflow.com/<workspace>/workflows/<workflow-id>
+Authorization: Bearer <ROBOFLOW_API_KEY>
+Content-Type: application/json
+
+{"inputs":{"image":{"type":"base64","value":"<base64 JPEG>"}}}
+```
+
+Route `kira-web/src/app/api/predict/route.ts` yang memanggil endpoint ini, jadi:
+
+- API key dibaca dari `ROBOFLOW_API_KEY` di `.env.local` (server-side).
+- Upload file dikonversi ke base64; mengirim `imageUrl` akan memakai `{"type":"url"}`.
+- Respons workflow dinormalisasi menjadi `{ count, results: [{ box, class, confidence }] }`, sehingga kotak deteksi bisa digambar di canvas.
+
+Kalau muncul `401 Unauthorized api_key ... not authorized for serverless inference`, buat API key baru di **Roboflow → Settings → API Keys** yang aktif untuk Serverless API, lalu restart `npm run dev`.
+
 ---
 
 ## 9. Alur pemakaian
@@ -359,10 +385,15 @@ Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan
    - probe tanah naik/turun,
    - servo kamera kiri/kanan,
    - **Vision AI**: isi target, klik **Mulai pantau**, atau **Foto + AI sekarang** untuk satu kali scan.
-7. Saat Roboflow menemukan target:
+7. Saat Roboflow di ESP32-CAM menemukan target/anomali:
    - ESP32-CAM menyimpan JPEG, mengunggah ke backend (`POST /api/snapshots`),
-   - backend menyimpan metadata (Supabase) dan menyiarkan event `snapshot`,
-   - foto terbaru langsung muncul di beranda setelah refresh.
+   - backend menyimpan metadata (Supabase) dan menyiarkan event `snapshot` lewat WebSocket,
+   - beranda langsung menerima foto baru (tanpa refresh), lalu otomatis mengirimnya ke
+     `/api/predict` untuk dianalisis ulang dengan Roboflow Workflows,
+   - kotak deteksi, jumlah daun, confidence, dan rekomendasi tampil di kartu **Foto terakhir**.
+     Analisis hanya berjalan sekali per foto; tombol **Ulangi** memaksa analisis ulang.
+   - Kalau tab belum terhubung ke WebSocket, kartu tetap memeriksa `/api/snapshots/latest`
+     tiap 15 detik sebagai cadangan.
 8. Data sensor dikirim tiap 2 detik dan disimpan maksimal tiap 5 detik.
 
 ---

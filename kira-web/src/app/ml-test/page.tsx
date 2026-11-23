@@ -1,49 +1,128 @@
 "use client";
-import { useState, useRef } from "react";
+
+import { useEffect, useRef, useState } from "react";
+import type { PredictResult } from "@/lib/vision";
 
 export default function MLTestPage() {
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<PredictResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const file = (form.elements.namedItem("file") as HTMLInputElement).files?.[0];
-    if (!file) return;
-    setLoading(true);
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch("/api/predict", { method: "POST", body: fd });
-    const data = await res.json();
-    setResult(data);
+  useEffect(() => {
+    if (!preview || !result) return;
+
     const img = new Image();
     img.onload = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext("2d")!;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
       ctx.drawImage(img, 0, 0);
-      for (const r of data.results) {
-        const [x1,y1,x2,y2] = r.box;
+
+      const scaleX = img.naturalWidth / (result.width || img.naturalWidth);
+      const scaleY = img.naturalHeight / (result.height || img.naturalHeight);
+
+      for (const r of result.results) {
+        const x1 = r.box[0] * scaleX;
+        const y1 = r.box[1] * scaleY;
+        const x2 = r.box[2] * scaleX;
+        const y2 = r.box[3] * scaleY;
+        const boxWidth = x2 - x1;
+        const boxHeight = y2 - y1;
+
         ctx.strokeStyle = "#d4a373";
         ctx.lineWidth = 4;
-        ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+        ctx.strokeRect(x1, y1, boxWidth, boxHeight);
+
         const len = 18;
         ctx.strokeStyle = "#f5ebe0";
         ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(x1,y1+len); ctx.lineTo(x1,y1); ctx.lineTo(x1+len,y1); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x2-len,y1); ctx.lineTo(x2,y1); ctx.lineTo(x2,y1+len); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x1,y2-len); ctx.lineTo(x1,y2); ctx.lineTo(x1+len,y2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x2-len,y2); ctx.lineTo(x2,y2); ctx.lineTo(x2,y2-len); ctx.stroke();
-        ctx.fillStyle = "#d4a373";
+        ctx.beginPath(); ctx.moveTo(x1, y1 + len); ctx.lineTo(x1, y1); ctx.lineTo(x1 + len, y1); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x2 - len, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + len); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x1, y2 - len); ctx.lineTo(x1, y2); ctx.lineTo(x1 + len, y2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x2 - len, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - len); ctx.stroke();
+
+        const label = `${r.class} ${(r.confidence * 100).toFixed(1)}%`;
         ctx.font = "bold 16px sans-serif";
-        ctx.fillText(`${r.class} ${(r.confidence*100).toFixed(1)}%`, x1+6, y1+22);
+        const textWidth = ctx.measureText(label).width;
+        const labelTop = Math.max(0, y1 - 26);
+        ctx.fillStyle = "rgba(14, 14, 16, 0.72)";
+        ctx.fillRect(x1, labelTop, textWidth + 12, 26);
+        ctx.fillStyle = "#d4a373";
+        ctx.fillText(label, x1 + 6, labelTop + 18);
       }
     };
-    img.src = URL.createObjectURL(file);
-    setLoading(false);
+    img.src = preview;
+
+    return () => {
+      img.onload = null;
+    };
+  }, [preview, result]);
+
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    };
+  }, []);
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+
+    const form = e.currentTarget;
+    const file = (form.elements.namedItem("file") as HTMLInputElement).files?.[0];
+    const imageUrl = (form.elements.namedItem("imageUrl") as HTMLInputElement).value.trim();
+
+    if (!file && !imageUrl) {
+      setError("Pilih file gambar atau tempel URL gambar terlebih dahulu.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let res: Response;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        res = await fetch("/api/predict", { method: "POST", body: fd });
+      } else {
+        res = await fetch("/api/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageUrl }),
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error ?? `Permintaan gagal (${res.status}).`);
+      }
+
+      setResult(data);
+      if (file) {
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+        const src = URL.createObjectURL(file);
+        objectUrlRef.current = src;
+        setPreview(src);
+      } else {
+        setPreview(imageUrl);
+      }
+    } catch (err) {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+      setResult(null);
+      setPreview(null);
+      setError(err instanceof Error ? err.message : "Terjadi kesalahan.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -57,10 +136,11 @@ export default function MLTestPage() {
               AI Vision
             </span>
             <h1 className="mt-6 text-balance font-display text-4xl font-bold leading-[1.04] text-cream sm:text-5xl">
-              Deteksi & <span className="text-gold">diagnosis</span> daun.
+              Deteksi & <span className="text-gold">hitung</span> daun.
             </h1>
             <p className="mt-5 max-w-lg text-lg leading-relaxed text-cream/60">
-              Upload foto daun tomat/cabe. KIRA menandai area daun, memprediksi kondisi, dan memberi rekomendasi treatment.
+              Upload foto daun atau tempel URL gambar. KIRA mengirim gambar ke Roboflow Workflows
+              lalu menandai setiap daun yang terdeteksi beserta tingkat keyakinannya.
             </p>
 
             <div className="mt-8 rounded-3xl border border-white/10 bg-olive-900/50 p-6 shadow-panel">
@@ -74,6 +154,23 @@ export default function MLTestPage() {
                     className="mt-2 block w-full text-sm text-cream/80 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gold file:text-ink hover:file:bg-gold-light"
                   />
                 </label>
+
+                <div className="flex items-center gap-3 text-xs uppercase tracking-[0.12em] text-cream/40">
+                  <span className="h-px flex-1 bg-white/10" />
+                  atau
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
+
+                <label className="block">
+                  <span className="text-xs uppercase tracking-[0.12em] text-cream/55">URL gambar</span>
+                  <input
+                    type="url"
+                    name="imageUrl"
+                    placeholder="https://contoh.com/daun.jpg"
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-ink/40 px-4 py-2.5 text-sm text-cream placeholder:text-cream/30 focus:border-gold focus:outline-none"
+                  />
+                </label>
+
                 <button
                   type="submit"
                   disabled={loading}
@@ -83,27 +180,57 @@ export default function MLTestPage() {
                 </button>
               </form>
 
+              {error && (
+                <div className="mt-5 rounded-xl border border-alert/40 bg-alert/10 px-4 py-3 text-sm text-cream/80">
+                  {error}
+                </div>
+              )}
+
               {result && (
                 <div className="mt-6 space-y-3">
-                  <h2 className="font-display text-lg font-bold text-cream">Hasil Deteksi</h2>
-                  <ul className="space-y-2">
-                    {result.results.map((r: any, i: number) => (
-                      <li key={i} className="rounded-xl bg-olive-800/60 px-3 py-2">
-                        <div className="flex justify-between">
-                          <span className="text-cream">{r.class}</span>
-                          <span className="font-mono text-gold">{(r.confidence * 100).toFixed(1)}%</span>
-                        </div>
-                        <p className="text-xs text-cream/60 mt-1">{r.recommendation}</p>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="font-display text-lg font-bold text-cream">Hasil Deteksi</h2>
+                    <span className="rounded-full bg-gold/15 px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-gold">
+                      {result.count} daun
+                    </span>
+                  </div>
+
+                  {result.results.length === 0 ? (
+                    <p className="rounded-xl bg-olive-800/60 px-3 py-3 text-sm text-cream/60">
+                      Tidak ada objek yang lolos filter. Coba foto yang lebih jelas atau ganti model
+                      Roboflow.
+                    </p>
+                  ) : (
+                    <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                      {result.results.map((r, i) => (
+                        <li key={i} className="rounded-xl bg-olive-800/60 px-3 py-2">
+                          <div className="flex justify-between gap-3">
+                            <span className="text-cream">
+                              {i + 1}. {r.class}
+                            </span>
+                            <span className="font-mono text-gold">{(r.confidence * 100).toFixed(1)}%</span>
+                          </div>
+                          <p className="text-xs text-cream/60 mt-1">{r.recommendation}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-olive-900/50 p-6 shadow-panel flex items-center justify-center">
-            <canvas ref={canvasRef} className="max-w-full rounded-2xl" />
+          <div className="rounded-3xl border border-white/10 bg-olive-900/50 p-6 shadow-panel flex min-h-[320px] items-center justify-center">
+            {preview ? (
+              <canvas ref={canvasRef} className="max-w-full rounded-2xl" />
+            ) : (
+              <div className="flex flex-col items-center gap-3 text-center text-sm text-cream/40">
+                <span className="flex size-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-xl">
+                  🌿
+                </span>
+                <p>Pratinjau hasil deteksi akan muncul di sini.</p>
+              </div>
+            )}
           </div>
         </section>
       </div>

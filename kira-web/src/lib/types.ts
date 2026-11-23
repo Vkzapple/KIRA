@@ -22,6 +22,10 @@ export interface PlantSnapshot {
   imageUrl: string;
   /** Waktu foto diambil, format ISO 8601 */
   capturedAt: string;
+  /** Class pemicu dari Roboflow di ESP32-CAM (mis. Tomato___Late_blight). */
+  class?: string;
+  /** Confidence pemicu (0-1). */
+  confidence?: number;
 }
 
 /** Kondisi terakhir robot, dikirim ESP32 Dev tiap ~2 detik. */

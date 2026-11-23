@@ -13,6 +13,8 @@ export interface RobotClient {
   onClose(cb: () => void): void;
   /** Telemetry live dari robot; mengembalikan fungsi untuk berhenti berlangganan. */
   onTelemetry(cb: (t: RobotTelemetry) => void): () => void;
+  /** Foto baru dari ESP32-CAM (dikirim saat ada deteksi/anomali). */
+  onSnapshot(cb: (s: PlantSnapshot) => void): () => void;
   getLatestSnapshot(): Promise<PlantSnapshot | null>;
 }
 
@@ -29,6 +31,9 @@ export const mockRobotClient: RobotClient = {
   disconnect() {},
   onClose() {},
   onTelemetry() {
+    return () => {};
+  },
+  onSnapshot() {
     return () => {};
   },
   send(cmd) {
@@ -83,11 +88,34 @@ async function readError(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
+type SnapshotPayload = {
+  id?: string;
+  plantName?: string;
+  imageUrl?: string;
+  capturedAt?: string;
+  class?: string;
+  confidence?: number;
+};
+
+function toPlantSnapshot(data: SnapshotPayload): PlantSnapshot | null {
+  if (!data.id || !data.imageUrl) return null;
+  return {
+    id: data.id,
+    plantName: data.plantName || "Tanaman KIRA",
+    imageUrl: data.imageUrl,
+    capturedAt: data.capturedAt || new Date().toISOString(),
+    class: data.class,
+    confidence:
+      typeof data.confidence === "number" ? data.confidence : undefined,
+  };
+}
+
 class WebSocketRobotClient implements RobotClient {
   private ws: WebSocket | null = null;
   private token: string | null = null;
   private closeHandlers = new Set<() => void>();
   private telemetryHandlers = new Set<(t: RobotTelemetry) => void>();
+  private snapshotHandlers = new Set<(s: PlantSnapshot) => void>();
   private manualClose = false;
 
   async connect(password: string): Promise<void> {
@@ -153,6 +181,7 @@ class WebSocketRobotClient implements RobotClient {
           deviceOnline?: boolean;
           message?: string;
           telemetry?: RobotTelemetry;
+          snapshot?: SnapshotPayload;
         };
         try {
           msg = JSON.parse(String(event.data));
@@ -165,6 +194,11 @@ class WebSocketRobotClient implements RobotClient {
           (msg.type === "telemetry" || msg.type === "ready")
         ) {
           this.notifyTelemetry(msg.telemetry);
+        }
+
+        if (msg.type === "snapshot" && msg.snapshot) {
+          const snap = toPlantSnapshot(msg.snapshot);
+          if (snap) this.notifySnapshot(snap);
         }
 
         if (msg.type === "ready" && !settled) {
@@ -273,6 +307,23 @@ class WebSocketRobotClient implements RobotClient {
     });
   }
 
+  onSnapshot(cb: (s: PlantSnapshot) => void) {
+    this.snapshotHandlers.add(cb);
+    return () => {
+      this.snapshotHandlers.delete(cb);
+    };
+  }
+
+  private notifySnapshot(s: PlantSnapshot) {
+    this.snapshotHandlers.forEach((cb) => {
+      try {
+        cb(s);
+      } catch {
+        /* handler error tidak boleh memutus loop */
+      }
+    });
+  }
+
   send(cmd: RobotCommand) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -299,18 +350,8 @@ class WebSocketRobotClient implements RobotClient {
     if (res.status === 204) return null;
     if (!res.ok) throw new Error(await readError(res, "Gagal memuat foto."));
 
-    const data = (await res.json()) as {
-      id: string;
-      plantName?: string;
-      imageUrl: string;
-      capturedAt: string;
-    };
-    return {
-      id: data.id,
-      plantName: data.plantName || "Tanaman KIRA",
-      imageUrl: data.imageUrl,
-      capturedAt: data.capturedAt,
-    };
+    const data = (await res.json()) as SnapshotPayload;
+    return toPlantSnapshot(data);
   }
 }
 
