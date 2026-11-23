@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -301,8 +305,52 @@ func (a *API) uploadSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Hash foto (SHA256) untuk referensi tanpa kirim raw ke AI service.
+	hash := sha256.Sum256(img)
+	snap.Hash = hex.EncodeToString(hash[:])
+
+	// Kirim ke AI service (Railway) untuk analisis; foto dikirim sebagai file,
+	// hash disertakan sebagai referensi.
+	if a.cfg.AIServiceURL != "" {
+		func() {
+			var buf bytes.Buffer
+			mw := multipart.NewWriter(&buf)
+			part, _ := mw.CreateFormFile("file", "snapshot.jpg")
+			_, _ = part.Write(img)
+			_ = mw.WriteField("hash", snap.Hash)
+			mw.Close()
+
+			req, err := http.NewRequest("POST", a.cfg.AIServiceURL+"/analyze", &buf)
+			if err != nil {
+				a.log.Warn("gagal buat request AI", "err", err)
+				return
+			}
+			req.Header.Set("Content-Type", mw.FormDataContentType())
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				a.log.Warn("gagal panggil AI service", "err", err)
+				return
+			}
+			defer resp.Body.Close()
+			var res map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
+				snap.Analysis = res
+				if r, ok := res["results"].([]any); ok && len(r) > 0 {
+					if first, ok := r[0].(map[string]any); ok {
+						if cls, ok := first["class"].(string); ok {
+							snap.Class = cls
+						}
+						if conf, ok := first["confidence"].(float64); ok {
+							snap.Confidence = conf
+						}
+					}
+				}
+			}
+		}()
+	}
+
 	a.hub.Broadcast(map[string]any{"type": "snapshot", "snapshot": snap})
-	a.log.Info("snapshot baru", "id", snap.ID, "class", snap.Class, "bytes", len(img), "device", snap.DeviceID)
+	a.log.Info("snapshot baru", "id", snap.ID, "class", snap.Class, "hash", snap.Hash, "bytes", len(img), "device", snap.DeviceID)
 	writeJSON(w, http.StatusCreated, map[string]any{"snapshot": snap})
 }
 

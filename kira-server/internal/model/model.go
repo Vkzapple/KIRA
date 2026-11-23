@@ -46,6 +46,8 @@ type Snapshot struct {
 	ImageURL   string    `json:"imageUrl"`
 	Class      string    `json:"class,omitempty"`
 	Confidence float64   `json:"confidence,omitempty"`
+	Hash       string    `json:"hash,omitempty"`
+	Analysis   any       `json:"analysis,omitempty"`
 	CapturedAt time.Time `json:"capturedAt"`
 	CreatedAt  time.Time `json:"createdAt"`
 }

@@ -19,6 +19,7 @@ type Config struct {
 	SupabaseServiceKey string
 	SupabaseBucket     string
 	PlantName          string
+	AIServiceURL       string
 }
 
 func Load() Config {
@@ -37,6 +38,7 @@ func Load() Config {
 		SupabaseServiceKey: env("SUPABASE_SERVICE_ROLE_KEY", ""),
 		SupabaseBucket:     env("SUPABASE_BUCKET", "kira-snapshots"),
 		PlantName:          env("PLANT_NAME", "Hibiscus (A1)"),
+		AIServiceURL:       strings.TrimRight(env("AI_SERVICE_URL", ""), "/"),
 	}
 }
 
