@@ -34,10 +34,11 @@ type API struct {
 	hub      *ws.Hub
 	store    store.Store
 	sessions *session.Store
+	cam      *camFeed
 }
 
 func New(cfg config.Config, log *slog.Logger, hub *ws.Hub, st store.Store, sessions *session.Store) *API {
-	return &API{cfg: cfg, log: log, hub: hub, store: st, sessions: sessions}
+	return &API{cfg: cfg, log: log, hub: hub, store: st, sessions: sessions, cam: newCamFeed()}
 }
 
 func (a *API) Router() http.Handler {
@@ -72,6 +73,11 @@ func (a *API) Router() http.Handler {
 		r.Get("/api/state", a.state)
 		r.Get("/api/telemetry", a.telemetryList)
 		r.Get("/ws/dashboard", a.hub.ServeDashboard)
+
+		// Debug kamera realtime (token boleh lewat ?token= supaya bisa dipakai <img src>)
+		r.Get("/api/cam/stream", a.camStream)
+		r.Get("/api/cam/latest.jpg", a.camLatest)
+		r.Get("/api/cam/state", a.camState)
 	})
 
 	r.Group(func(r chi.Router) {
@@ -79,6 +85,7 @@ func (a *API) Router() http.Handler {
 
 		r.Post("/api/snapshots", a.uploadSnapshot)
 		r.Post("/api/detections", a.createDetection)
+		r.Post("/api/cam/frame", a.camFrame)
 		r.Get("/ws/device", a.hub.ServeDevice)
 	})
 
@@ -309,47 +316,13 @@ func (a *API) uploadSnapshot(w http.ResponseWriter, r *http.Request) {
 	hash := sha256.Sum256(img)
 	snap.Hash = hex.EncodeToString(hash[:])
 
-	// Kirim ke AI service (Railway) untuk analisis; foto dikirim sebagai file,
-	// hash disertakan sebagai referensi.
-	if a.cfg.AIServiceURL != "" {
-		func() {
-			var buf bytes.Buffer
-			mw := multipart.NewWriter(&buf)
-			part, _ := mw.CreateFormFile("file", "snapshot.jpg")
-			_, _ = part.Write(img)
-			_ = mw.WriteField("hash", snap.Hash)
-			mw.Close()
-
-			req, err := http.NewRequest("POST", a.cfg.AIServiceURL+"/analyze", &buf)
-			if err != nil {
-				a.log.Warn("gagal buat request AI", "err", err)
-				return
-			}
-			req.Header.Set("Content-Type", mw.FormDataContentType())
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				a.log.Warn("gagal panggil AI service", "err", err)
-				return
-			}
-			defer resp.Body.Close()
-			var res map[string]any
-			if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
-				snap.Analysis = res
-				if r, ok := res["results"].([]any); ok && len(r) > 0 {
-					if first, ok := r[0].(map[string]any); ok {
-						if cls, ok := first["class"].(string); ok {
-							snap.Class = cls
-						}
-						if conf, ok := first["confidence"].(float64); ok {
-							snap.Confidence = conf
-						}
-					}
-				}
-			}
-		}()
-	}
-
 	a.hub.Broadcast(map[string]any{"type": "snapshot", "snapshot": snap})
+
+	// Analisis AI berjalan di background supaya upload dari ESP32-CAM tidak
+	// menunggu (timeout firmware 15 detik). Hasilnya disiarkan ulang dengan id sama.
+	if a.cfg.AIServiceURL != "" {
+		go a.analyzeSnapshot(snap, img)
+	}
 	a.log.Info("snapshot baru", "id", snap.ID, "class", snap.Class, "hash", snap.Hash, "bytes", len(img), "device", snap.DeviceID)
 	writeJSON(w, http.StatusCreated, map[string]any{"snapshot": snap})
 }
@@ -470,4 +443,62 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": msg})
+}
+
+var aiClient = &http.Client{Timeout: 60 * time.Second}
+
+// analyzeSnapshot mengirim foto ke kira-ml-service (/analyze) lalu menyiarkan
+// snapshot yang sudah berisi hasil analisis.
+func (a *API) analyzeSnapshot(snap model.Snapshot, img []byte) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, err := mw.CreateFormFile("file", "snapshot.jpg")
+	if err != nil {
+		a.log.Warn("gagal buat form AI", "err", err)
+		return
+	}
+	_, _ = part.Write(img)
+	_ = mw.WriteField("hash", snap.Hash)
+	if err := mw.Close(); err != nil {
+		a.log.Warn("gagal menutup form AI", "err", err)
+		return
+	}
+
+	req, err := http.NewRequest(http.MethodPost, a.cfg.AIServiceURL+"/analyze", &buf)
+	if err != nil {
+		a.log.Warn("gagal buat request AI", "err", err, "url", a.cfg.AIServiceURL)
+		return
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := aiClient.Do(req)
+	if err != nil {
+		a.log.Warn("gagal panggil AI service", "err", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		a.log.Warn("AI service menolak", "status", resp.StatusCode, "body", string(body))
+		return
+	}
+
+	var res map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		a.log.Warn("respons AI bukan JSON", "err", err)
+		return
+	}
+	snap.Analysis = res
+	if list, ok := res["results"].([]any); ok && len(list) > 0 {
+		if first, ok := list[0].(map[string]any); ok {
+			if cls, ok := first["class"].(string); ok {
+				snap.Class = cls
+			}
+			if conf, ok := first["confidence"].(float64); ok {
+				snap.Confidence = conf
+			}
+		}
+	}
+	a.hub.Broadcast(map[string]any{"type": "snapshot", "snapshot": snap})
+	a.log.Info("analisis AI selesai", "id", snap.ID, "class", snap.Class)
 }

@@ -101,6 +101,10 @@ curl http://localhost:8080/api/health
 | GET | `/ws/dashboard?token=` | sesi | WebSocket browser |
 | GET | `/ws/device?token=` | device | WebSocket ESP32 |
 | GET | `/media/*` | publik | foto mode lokal |
+| POST | `/api/cam/frame` | device | frame JPEG mentah dari ESP32-CAM (query `id,w,h,src`) |
+| GET | `/api/cam/stream?token=` | sesi | MJPEG realtime untuk `<img src>` |
+| GET | `/api/cam/latest.jpg?token=` | sesi | satu frame terakhir |
+| GET | `/api/cam/state` | sesi | frame/fps + hasil AI + status CAM terakhir |
 
 Device mengirim token lewat header `X-Device-Token` (HTTP) atau query `?token=` (WebSocket, karena ESP32 tidak bisa set header dengan mudah).
 
@@ -340,12 +344,12 @@ Cara flash:
 4. Salin **Model ID**, **Version**, dan **API Key**.
 5. Pastikan nama class (mis. `person`, `bottle`) sama dengan isi target.
 
-Format request firmware (raw JPEG, bukan base64):
+Format request firmware (body **base64**, bukan JPEG mentah; firmware meng-encode dengan mbedtls):
 
 ```
 POST https://detect.roboflow.com/<MODEL>/<VERSION>?api_key=<KEY>&confidence=40&overlap=30
 Content-Type: application/x-www-form-urlencoded
-<binary JPEG>
+<base64 dari JPEG>
 ```
 
 Firmware memakai `WiFiClientSecure::setInsecure()`. Untuk produksi, ganti dengan `setCACert()`.
@@ -435,6 +439,46 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 {"type":"detection","class":"person","confidence":0.87,"count":2,"imageUrl":"https://.../foto.jpg"}
 ```
 
+### Relay daya robot (ESP32-CAM)
+
+ESP32-CAM mengendalikan modul relay 2 channel dengan **satu perintah** `{"type":"power","on":true|false}`
+(tombol **Nyalakan robot** / **Matikan robot** di halaman Controller):
+
+| Pin ESP32-CAM | Relay | Memutus/menyambung |
+|---|---|---|
+| GPIO13 | IN1 | catu ESP32 controller |
+| GPIO14 | IN2 | catu L298N (supply motor) |
+| 5V / GND | VCC / GND | catu modul relay (GND harus bersama) |
+
+- Sisi beban: sumber daya -> terminal **COM**, lalu **NO** ke input daya controller / L298N (relay kering, jangan menyambungkan beban ke pin ESP32-CAM).
+- Modul diasumsikan *active-LOW* (umumnya demikian). Kalau relay terbalik, ubah `RELAY_ACTIVE_LOW` di firmware.
+- ON: relay controller menyala dulu, relay L298N menyusul `RELAY_L298N_DELAY_MS` (1,5 dtk) supaya motor tidak berkedut saat controller booting. OFF: L298N dimatikan dulu, lalu controller, langsung.
+- Saat boot atau CAM reboot, kedua relay **MATI** (aman). Status dilaporkan lewat `ai_status.power` dan tampil di website.
+- Hindari GPIO12 (strapping flash) dan GPIO16 (PSRAM) untuk relay.
+
+### Debug kamera realtime (`/camera`)
+
+Halaman **Kamera** di website (perlu terhubung ke robot) menampilkan:
+
+- stream MJPEG dari ESP32-CAM dengan kotak deteksi Roboflow di atasnya (hijau = class target, kuning = class lain, putus-putus = kotak dari scan sebelumnya),
+- hasil AI terakhir: kode HTTP Roboflow, waktu respons, jumlah deteksi, diagnosis otomatis (400/401/404/timeout/class tidak cocok),
+- kesehatan CAM: RSSI, heap, PSRAM, uptime, IP, versi firmware,
+- log kejadian live, serta tombol preview on/off + fps, scan AI sekarang, auto-scan, dan ubah target.
+
+Alurnya: CAM mengirim frame ke `POST /api/cam/frame` (tiap scan, dan ±2 fps saat preview aktif), lalu mengirim `ai_result` lewat WebSocket. Backend menyiarkan `cam_frame`/`cam_result`/`cam_status`/`cam_log` ke dashboard. Preview hanya aktif saat halaman terbuka (keepalive tiap 10 detik; firmware mati otomatis setelah 30 detik tanpa keepalive) dan berhenti sementara saat CAM sedang scan AI.
+
+Pesan tambahan:
+
+```json
+// dashboard -> CAM
+{"type":"preview","on":true,"fps":2}
+// CAM -> server
+{"type":"ai_result","id":7,"ok":true,"http":200,"ms":1234,"w":640,"h":480,"matched":true,
+ "best":"Tomato___Late_blight","conf":0.8,"n":1,"target":"...",
+ "preds":[{"c":"...","cf":0.8,"x":320,"y":240,"w":100,"h":80,"t":true}]}
+{"type":"cam_log","msg":"..."}
+```
+
 Status kamera (`camOnline`, `camArmed`, `camBusy`, `camTarget`) hanya ditulis oleh pesan `ai_status` dari CAM. Telemetry dari Dev tidak menimpanya. Kalau CAM putus, backend menandai `camOnline=false` dan menyiarkannya.
 
 ---
@@ -475,4 +519,4 @@ Status kamera (`camOnline`, `camArmed`, `camBusy`, `camTarget`) hanya ditulis ol
 - WebSocket device memakai token statis; untuk produksi pakai TLS (`wss://`) di belakang reverse proxy dan tetap jaga `DEVICE_TOKEN`.
 - Firmware saat ini memakai `ws://`/`http://` polos karena diuji di LAN. Jangan expose port backend langsung ke internet tanpa TLS.
 - `setInsecure()` mempermudah setup Roboflow tetapi tidak memverifikasi sertifikat. Untuk produksi, pasang root CA.
-- Roboflow menerima gambar mentah; jangan arahkan kamera ke area privat tanpa izin.
+- Roboflow menerima gambar (base64); jangan arahkan kamera ke area privat tanpa izin.

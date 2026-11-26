@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Gamepad2, Home, Leaf, Lock } from "lucide-react";
+import { Camera, Gamepad2, Home, Leaf, Lock } from "lucide-react";
 import { useRobot } from "@/context/RobotContext";
 import ConnectionBadge from "./ConnectionBadge";
 
@@ -14,6 +14,7 @@ export default function Navbar() {
   const links = [
     { href: "/", label: "Beranda", icon: Home, locked: false },
     { href: "/controller", label: "Controller", icon: Gamepad2, locked },
+    { href: "/camera", label: "Kamera", icon: Camera, locked },
   ];
 
   return (

@@ -44,5 +44,11 @@ export function describeCommand(cmd: RobotCommand): string {
         : "Vision AI: berhenti";
     case "capture":
       return "Kamera: ambil foto + analisis AI";
+    case "power":
+      return cmd.on ? "Daya robot: NYALA (controller + L298N)" : "Daya robot: MATI (controller + L298N)";
+    case "preview":
+      return cmd.on ? "Preview kamera: nyala" : "Preview kamera: mati";
+    case "cam":
+      return `Kamera: ${cmd.cmd}${cmd.target ? ` (${cmd.target})` : ""}`;
   }
 }

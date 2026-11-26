@@ -1,25 +1,36 @@
 from flask import Flask, request, jsonify
-import joblib, torch, timm, os, requests, io, re
+import joblib, torch, timm, os, requests, io, re, base64
 from PIL import Image
 import numpy as np
 from torchvision import transforms
 
-env_path = os.path.join(os.path.dirname(__file__), '.env')
-if os.path.exists(env_path):
-    with open(env_path) as f:
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_env(path):
+    """Baca .env format KEY=VALUE. Format PowerShell lama ($env:KEY="v") tetap diterima."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding='utf-8-sig') as f:
         for line in f:
-            line=line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                k,v = line.split('=',1)
-                os.environ.setdefault(k.strip(), v.strip())
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, v = line.split('=', 1)
+            k = re.sub(r'^\$env:', '', k.strip())
+            v = v.strip().strip('"').strip("'")
+            os.environ.setdefault(k, v)
+
+
+load_env(os.path.join(BASE_DIR, '.env'))
 
 app = Flask(__name__)
-bundle = joblib.load('kira_ml_model.joblib')
+bundle = joblib.load(os.path.join(BASE_DIR, 'kira_ml_model.joblib'))
 model = bundle['xgb']
 le = bundle['le']
 
 RF_KEY = os.environ.get('ROBOFLOW_API_KEY','')
-RF_MODEL = os.environ.get('ROBOFLOW_MODEL','plant-disease-detection-rhvjq')
+RF_MODEL = os.environ.get('ROBOFLOW_MODEL','plant-disease-detection-rhvjq').strip('/')
 RF_VER = os.environ.get('ROBOFLOW_VERSION','1')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -64,30 +75,65 @@ def classify(img):
     cls = clean_label(raw)
     return cls, float(proba.max()), recommend(cls)
 
+@app.route('/health')
+def health():
+    return jsonify({'ok': True, 'roboflow': bool(RF_KEY), 'model': RF_MODEL})
+
+
+def roboflow_url():
+    # ROBOFLOW_MODEL boleh "project" (+ ROBOFLOW_VERSION) atau sudah "project/versi".
+    model_path = RF_MODEL if '/' in RF_MODEL else f"{RF_MODEL}/{RF_VER}"
+    return f"https://detect.roboflow.com/{model_path}"
+
+
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    f = request.files['file']
-    img = Image.open(io.BytesIO(f.read())).convert('RGB')
-    w,h = img.size
+    f = request.files.get('file')
+    if f is None:
+        return jsonify({'error': 'field multipart "file" wajib ada'}), 400
+    try:
+        img = Image.open(io.BytesIO(f.read())).convert('RGB')
+    except Exception:
+        return jsonify({'error': 'file bukan gambar valid'}), 400
+
+    w, h = img.size
     results = []
     if RF_KEY:
-        url = f"https://detect.roboflow.com/{RF_MODEL}/{RF_VER}?api_key={RF_KEY}&confidence=40"
-        buf = io.BytesIO()
-        img.save(buf, format='JPEG')
-        buf.seek(0)
-        r = requests.post(url, files={'file': ('img.jpg', buf, 'image/jpeg')}, timeout=30)
-        if r.status_code == 200:
-            for p in r.json().get('predictions', []):
-                x,y,pw,ph = p['x'], p['y'], p['width'], p['height']
-                left = max(0, int(x - pw/2)); top = max(0, int(y - ph/2))
-                right = min(w, int(x + pw/2)); bottom = min(h, int(y + ph/2))
-                crop = img.crop((left,top,right,bottom))
-                cls, conf, rec = classify(crop)
-                results.append({'box':[left,top,right,bottom], 'class': cls, 'confidence': conf, 'detected': p.get('class'), 'recommendation': rec})
+        try:
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG')
+            # Roboflow hosted API menerima body base64 (bukan JPEG mentah).
+            payload = base64.b64encode(buf.getvalue()).decode('ascii')
+            r = requests.post(
+                roboflow_url(),
+                params={'api_key': RF_KEY, 'confidence': 40, 'overlap': 30},
+                data=payload,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=30,
+            )
+            if r.status_code == 200:
+                for p in r.json().get('predictions', []):
+                    x, y, pw, ph = p['x'], p['y'], p['width'], p['height']
+                    left = max(0, int(x - pw / 2)); top = max(0, int(y - ph / 2))
+                    right = min(w, int(x + pw / 2)); bottom = min(h, int(y + ph / 2))
+                    if right <= left or bottom <= top:
+                        continue
+                    crop = img.crop((left, top, right, bottom))
+                    cls, conf, rec = classify(crop)
+                    results.append({'box': [left, top, right, bottom], 'class': cls,
+                                    'confidence': conf, 'detected': p.get('class'),
+                                    'recommendation': rec})
+            else:
+                print(f"[roboflow] HTTP {r.status_code}: {r.text[:200]}", flush=True)
+        except requests.RequestException as e:
+            print(f"[roboflow] gagal: {e}", flush=True)
+
     if not results:
         cls, conf, rec = classify(img)
-        results.append({'box':[0,0,w,h], 'class': cls, 'confidence': conf, 'detected': 'image', 'recommendation': rec})
-    return jsonify({'width':w,'height':h,'results':results})
+        results.append({'box': [0, 0, w, h], 'class': cls, 'confidence': conf,
+                        'detected': 'image', 'recommendation': rec})
+    return jsonify({'width': w, 'height': h, 'results': results})
+
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', os.environ.get('AI_SERVICE_PORT', 8000))))

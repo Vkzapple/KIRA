@@ -54,8 +54,15 @@ type Hub struct {
 	// Status kamera dikelola terpisah supaya telemetry Dev tidak menimpanya.
 	camOnline bool
 	camArmed  bool
-	camBusy   bool
-	camTarget string
+
+	// Status relay daya robot (dilaporkan ESP32-CAM lewat ai_status.power).
+	robotPower bool
+	camBusy    bool
+	camTarget  string
+
+	// Data debug kamera terakhir (JSON mentah dari ESP32-CAM).
+	lastCamResult []byte
+	lastCamStatus []byte
 }
 
 type Client struct {
@@ -158,9 +165,11 @@ func (h *Hub) unregister(c *Client) {
 		// Kamera yang putus tidak boleh tetap tampil "online" di dashboard.
 		h.camOnline = false
 		h.camBusy = false
+		h.robotPower = false // CAM reboot/putus => relay kembali MATI
 		if h.hasLatest {
 			h.latest.CamOnline = false
 			h.latest.CamBusy = false
+			h.latest.RobotPower = false
 			h.latest.CreatedAt = time.Now().UTC()
 			camState = h.latest
 		}
@@ -196,6 +205,7 @@ func (h *Hub) sendReady(c *Client) {
 		latest = h.latest
 		latest.CamOnline = h.camOnline
 		latest.CamArmed = h.camArmed
+		latest.RobotPower = h.robotPower
 		latest.CamBusy = h.camBusy
 		latest.CamTarget = h.camTarget
 	}
@@ -237,6 +247,7 @@ func (h *Hub) Snapshot() (t model.Telemetry, has bool, online bool, last time.Ti
 	t = h.latest
 	t.CamOnline = h.camOnline
 	t.CamArmed = h.camArmed
+	t.RobotPower = h.robotPower
 	t.CamBusy = h.camBusy
 	t.CamTarget = h.camTarget
 	online = len(h.devices) > 0
@@ -347,7 +358,7 @@ func (h *Hub) handleMessage(c *Client, data []byte) {
 
 func (h *Hub) handleDashboard(c *Client, data []byte, typ string) {
 	switch typ {
-	case "move", "probe", "camera", "servo", "ai", "capture":
+	case "move", "probe", "camera", "servo", "ai", "capture", "preview", "cam", "power":
 	case "ping":
 		c.enqueue(map[string]any{"type": "pong"})
 		return
@@ -420,6 +431,7 @@ func (h *Hub) handleDevice(c *Client, data []byte, typ string) {
 		// supaya telemetry Dev tiap 2 detik tidak menimpa nilainya.
 		t.CamOnline = h.camOnline
 		t.CamArmed = h.camArmed
+		t.RobotPower = h.robotPower
 		t.CamBusy = h.camBusy
 		t.CamTarget = h.camTarget
 		h.latest = t
@@ -458,16 +470,20 @@ func (h *Hub) handleDevice(c *Client, data []byte, typ string) {
 			Armed  bool   `json:"armed"`
 			Target string `json:"target"`
 			Busy   bool   `json:"busy"`
+			Power  bool   `json:"power"`
 		}
 		_ = json.Unmarshal(data, &ai)
 		h.mu.Lock()
+		h.lastCamStatus = append([]byte(nil), data...)
 		h.camOnline = true
 		h.camArmed = ai.Armed
+		h.robotPower = ai.Power
 		h.camBusy = ai.Busy
 		h.camTarget = ai.Target
 		if h.hasLatest {
 			h.latest.CamOnline = true
 			h.latest.CamArmed = ai.Armed
+			h.latest.RobotPower = ai.Power
 			h.latest.CamTarget = ai.Target
 			h.latest.CamBusy = ai.Busy
 			h.latest.CreatedAt = time.Now().UTC()
@@ -479,6 +495,30 @@ func (h *Hub) handleDevice(c *Client, data []byte, typ string) {
 		if has {
 			h.broadcast(map[string]any{"type": "telemetry", "telemetry": t, "deviceOnline": true})
 		}
+		h.broadcast(map[string]any{"type": "cam_status", "status": json.RawMessage(data)})
+
+	case "ai_result":
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			return
+		}
+		m["type"] = "cam_result"
+		m["serverTs"] = time.Now().UnixMilli()
+		if b, err := json.Marshal(m); err == nil {
+			h.mu.Lock()
+			h.lastCamResult = b
+			h.mu.Unlock()
+		}
+		h.broadcast(m)
+
+	case "cam_log":
+		var m struct {
+			Msg string `json:"msg"`
+		}
+		if err := json.Unmarshal(data, &m); err != nil || m.Msg == "" {
+			return
+		}
+		h.broadcast(map[string]any{"type": "cam_log", "msg": m.Msg, "ts": time.Now().UnixMilli()})
 
 	case "ack", "pong":
 		// keep-alive / konfirmasi, tidak perlu diteruskan
@@ -587,4 +627,11 @@ func sanitizeID(v string) string {
 		}
 	}
 	return b.String()
+}
+
+// CamLast mengembalikan hasil AI dan status terakhir dari ESP32-CAM (JSON mentah).
+func (h *Hub) CamLast() (result, status []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.lastCamResult, h.lastCamStatus
 }

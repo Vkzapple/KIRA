@@ -14,7 +14,15 @@ export type RobotCommand =
   | { type: "camera"; dir: CameraDir }
   | { type: "servo"; sync?: number; aux?: number }
   | { type: "ai"; armed: boolean; target?: string }
-  | { type: "capture" };
+  | { type: "capture" }
+  | { type: "power"; on: boolean }
+  | { type: "preview"; on: boolean; fps?: number }
+  | {
+      type: "cam";
+      cmd: "arm" | "stop" | "trigger" | "target" | "interval";
+      target?: string;
+      ms?: number;
+    };
 
 export interface PlantSnapshot {
   id: string;
@@ -58,6 +66,8 @@ export interface RobotTelemetry {
   camArmed: boolean;
   camBusy: boolean;
   camTarget?: string;
+  /** Relay daya robot (controller + L298N) menyala. */
+  robotPower?: boolean;
   rssi: number;
   uptime: number;
   createdAt: string;

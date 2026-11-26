@@ -22,6 +22,7 @@ type Telemetry struct {
 	CamArmed         bool      `json:"camArmed"`
 	CamBusy          bool      `json:"camBusy"`
 	CamTarget        string    `json:"camTarget"`
+	RobotPower       bool      `json:"robotPower"`
 	RSSI             int       `json:"rssi"`
 	Uptime           int64     `json:"uptime"`
 	CreatedAt        time.Time `json:"createdAt"`

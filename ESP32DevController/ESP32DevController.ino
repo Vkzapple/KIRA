@@ -652,6 +652,8 @@ void handleCommand(const String &msg) {
 
   // "ai" dan "capture" ditangani ESP32-CAM (device terpisah di backend).
   if (!strcmp(type, "ai") || !strcmp(type, "capture")) return;
+  // "power" (relay robot), "preview" dan "cam" juga untuk ESP32-CAM.
+  if (!strcmp(type, "power") || !strcmp(type, "preview") || !strcmp(type, "cam")) return;
   if (!strcmp(type, "hello_ack") || !strcmp(type, "pong")) return;
 
   Serial.printf("[CMD] tipe tidak dikenal: %s\n", type);

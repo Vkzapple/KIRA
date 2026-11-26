@@ -16,6 +16,10 @@ export interface RobotClient {
   /** Foto baru dari ESP32-CAM (dikirim saat ada deteksi/anomali). */
   onSnapshot(cb: (s: PlantSnapshot) => void): () => void;
   getLatestSnapshot(): Promise<PlantSnapshot | null>;
+  /** Semua pesan JSON mentah dari server (dipakai halaman debug /camera). */
+  onMessage(cb: (msg: Record<string, unknown>) => void): () => void;
+  /** Token sesi aktif (untuk <img src> MJPEG). */
+  getToken(): string | null;
 }
 
 const MOCK_PASSWORD = process.env.NEXT_PUBLIC_MOCK_PASSWORD ?? "kira123";
@@ -35,6 +39,12 @@ export const mockRobotClient: RobotClient = {
   },
   onSnapshot() {
     return () => {};
+  },
+  onMessage() {
+    return () => {};
+  },
+  getToken() {
+    return null;
   },
   send(cmd) {
     console.debug("[mock robot] perintah dikirim:", cmd);
@@ -116,6 +126,7 @@ class WebSocketRobotClient implements RobotClient {
   private closeHandlers = new Set<() => void>();
   private telemetryHandlers = new Set<(t: RobotTelemetry) => void>();
   private snapshotHandlers = new Set<(s: PlantSnapshot) => void>();
+  private messageHandlers = new Set<(m: Record<string, unknown>) => void>();
   private manualClose = false;
 
   async connect(password: string): Promise<void> {
@@ -188,6 +199,7 @@ class WebSocketRobotClient implements RobotClient {
         } catch {
           return;
         }
+        this.notifyMessage(msg as Record<string, unknown>);
 
         if (
           msg.telemetry &&
@@ -301,6 +313,27 @@ class WebSocketRobotClient implements RobotClient {
     this.telemetryHandlers.forEach((cb) => {
       try {
         cb(t);
+      } catch {
+        /* handler error tidak boleh memutus loop */
+      }
+    });
+  }
+
+  onMessage(cb: (m: Record<string, unknown>) => void) {
+    this.messageHandlers.add(cb);
+    return () => {
+      this.messageHandlers.delete(cb);
+    };
+  }
+
+  getToken() {
+    return this.token ?? tokenStorage();
+  }
+
+  private notifyMessage(m: Record<string, unknown>) {
+    this.messageHandlers.forEach((cb) => {
+      try {
+        cb(m);
       } catch {
         /* handler error tidak boleh memutus loop */
       }

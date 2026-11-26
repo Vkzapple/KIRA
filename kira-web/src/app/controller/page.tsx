@@ -9,6 +9,8 @@ import {
   ArrowUpToLine,
   Camera,
   Lock,
+  Power,
+  PowerOff,
   Radar,
   RotateCcw,
   RotateCw,
@@ -22,6 +24,8 @@ import AnalogStick from "@/components/controller/AnalogStick";
 import ServoControl from "@/components/controller/ServoControl";
 import ProximityMeter from "@/components/ProximityMeter";
 import { describeCommand } from "@/lib/format";
+import { API_URL, robotClient } from "@/lib/robot-client";
+import type { CamStatus } from "@/lib/cam";
 import type { MoveDir, RobotCommand } from "@/lib/types";
 
 interface LogEntry {
@@ -46,6 +50,50 @@ export default function ControllerPage() {
   const lastMoveDir = useRef<MoveDir | null>(null);
   const lastMoveLogAt = useRef(0);
   const connected = status === "connected";
+
+  // Status relay daya robot (dilaporkan ESP32-CAM; controller mati total saat OFF)
+  const [camPower, setCamPower] = useState<CamStatus | null>(null);
+  const [powerWait, setPowerWait] = useState<boolean | null>(null);
+  const robotOn = camPower?.power ?? telemetry?.robotPower ?? false;
+  const camOnline = !!telemetry?.camOnline || camPower !== null;
+
+  useEffect(() => {
+    if (!connected) return;
+    let alive = true;
+    const t = robotClient.getToken();
+    if (t) {
+      fetch(`${API_URL}/api/cam/state`, {
+        headers: { Authorization: `Bearer ${t}` },
+        cache: "no-store",
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { status?: CamStatus } | null) => {
+          if (alive && d?.status) setCamPower(d.status);
+        })
+        .catch(() => {});
+    }
+    const off = robotClient.onMessage((msg) => {
+      if (msg.type === "cam_status") {
+        const st = (msg as { status?: CamStatus }).status;
+        if (st) setCamPower(st);
+      }
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [connected]);
+
+  // Hentikan indikator "menunggu" saat status relay sudah sesuai perintah (atau 6 dtk)
+  useEffect(() => {
+    if (powerWait === null) return;
+    if (robotOn === powerWait) {
+      setPowerWait(null);
+      return;
+    }
+    const id = setTimeout(() => setPowerWait(null), 6000);
+    return () => clearTimeout(id);
+  }, [powerWait, robotOn]);
 
   const dispatch = useCallback(
     (cmd: RobotCommand, log = true) => {
@@ -157,6 +205,83 @@ export default function ControllerPage() {
           </section>
 
           <div className="flex flex-col gap-6">
+            <section className="rounded-3xl border border-white/10 bg-olive-900/50 p-5 shadow-panel">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="flex items-center gap-2 font-display text-lg font-bold text-cream">
+                    <Power className="size-5 text-gold" aria-hidden="true" />
+                    Daya robot
+                  </h3>
+                  <p className="mt-1 text-sm text-cream/60">
+                    Satu perintah menyalakan atau mematikan ESP32 controller dan
+                    L298N lewat modul relay di ESP32-CAM.
+                  </p>
+                </div>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    !camOnline
+                      ? "border-white/10 bg-white/[0.04] text-cream/50"
+                      : powerWait !== null
+                        ? "border-gold/40 bg-gold/10 text-gold-light"
+                        : robotOn
+                          ? "border-olive-300/30 bg-olive-500/15 text-olive-200"
+                          : "border-white/10 bg-white/[0.04] text-cream/60"
+                  }`}
+                >
+                  {!camOnline
+                    ? "CAM offline"
+                    : powerWait !== null
+                      ? "Memproses…"
+                      : robotOn
+                        ? camPower?.motorPower === false
+                          ? "Menyala (L298N menyusul)"
+                          : "Robot menyala"
+                        : "Robot mati"}
+                </span>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!camOnline}
+                  onClick={() => {
+                    dispatch({ type: "power", on: true });
+                    setPowerWait(true);
+                  }}
+                  className="flex items-center gap-2 rounded-full bg-gold px-4 py-2 text-sm font-bold text-ink transition-colors hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Power className="size-4" aria-hidden="true" />
+                  Nyalakan robot
+                </button>
+                <button
+                  type="button"
+                  disabled={!camOnline}
+                  onClick={() => {
+                    dispatch({ type: "move", dir: "stop" }, false);
+                    dispatch({ type: "power", on: false });
+                    setPowerWait(false);
+                  }}
+                  className="flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-cream/70 transition-colors hover:border-white/30 hover:text-cream disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <PowerOff className="size-4" aria-hidden="true" />
+                  Matikan robot
+                </button>
+              </div>
+              {!camOnline && (
+                <p className="mt-3 text-xs text-cream/50">
+                  Relay terpasang di ESP32-CAM, jadi tombol aktif setelah CAM
+                  online.
+                </p>
+              )}
+              {camOnline && !robotOn && (
+                <p className="mt-3 text-xs text-cream/50">
+                  Saat robot mati, controller tidak merespons tuas dan data
+                  sensor. Nyalakan dulu, tunggu beberapa detik sampai controller
+                  online.
+                </p>
+              )}
+            </section>
+
             <section className="rounded-3xl border border-white/10 bg-olive-900/50 p-5 shadow-panel">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>

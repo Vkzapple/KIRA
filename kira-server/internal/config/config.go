@@ -27,7 +27,7 @@ func Load() Config {
 
 	return Config{
 		Addr:               env("ADDR", ":8080"),
-		CORSOrigins:        split(env("CORS_ORIGINS", "http://localhost:3000")),
+		CORSOrigins:        split(env("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")),
 		RobotPassword:      env("ROBOT_PASSWORD", "kira123"),
 		DeviceToken:        env("DEVICE_TOKEN", "change-me-device-token"),
 		DeviceID:           env("DEVICE_ID", "kira-01"),
@@ -38,7 +38,7 @@ func Load() Config {
 		SupabaseServiceKey: env("SUPABASE_SERVICE_ROLE_KEY", ""),
 		SupabaseBucket:     env("SUPABASE_BUCKET", "kira-snapshots"),
 		PlantName:          env("PLANT_NAME", "Hibiscus (A1)"),
-		AIServiceURL:       strings.TrimRight(env("AI_SERVICE_URL", ""), "/"),
+		AIServiceURL:       normalizeURL(env("AI_SERVICE_URL", "")),
 	}
 }
 
@@ -62,7 +62,7 @@ func split(v string) []string {
 		}
 	}
 	if len(out) == 0 {
-		out = []string{"http://localhost:3000"}
+		out = []string{"http://localhost:3000", "http://localhost:3001"}
 	}
 	return out
 }
@@ -73,4 +73,19 @@ func duration(v string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// normalizeURL menambahkan skema kalau lupa ditulis (mis. "xxx.up.railway.app").
+// Host lokal/LAN memakai http, selain itu https.
+func normalizeURL(v string) string {
+	v = strings.TrimRight(strings.TrimSpace(v), "/")
+	if v == "" || strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://") {
+		return v
+	}
+	for _, p := range []string{"localhost", "127.", "10.", "192.168.", "172."} {
+		if strings.HasPrefix(v, p) {
+			return "http://" + v
+		}
+	}
+	return "https://" + v
 }
