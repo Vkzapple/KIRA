@@ -139,8 +139,8 @@ export default function MLTestPage() {
               Deteksi & <span className="text-gold">hitung</span> daun.
             </h1>
             <p className="mt-5 max-w-lg text-lg leading-relaxed text-cream/60">
-              Upload foto daun atau tempel URL gambar. KIRA mengirim gambar ke Roboflow Workflows
-              lalu menandai setiap daun yang terdeteksi beserta tingkat keyakinannya.
+              Upload foto daun cabai atau tempel URL gambar. Roboflow hanya mendeteksi
+              kotak daun, lalu model ML cabai menentukan penyakit dan rekomendasinya.
             </p>
 
             <div className="mt-8 rounded-3xl border border-white/10 bg-olive-900/50 p-6 shadow-panel">
@@ -197,8 +197,8 @@ export default function MLTestPage() {
 
                   {result.results.length === 0 ? (
                     <p className="rounded-xl bg-olive-800/60 px-3 py-3 text-sm text-cream/60">
-                      Tidak ada objek yang lolos filter. Coba foto yang lebih jelas atau ganti model
-                      Roboflow.
+                      Tidak ada objek yang terdeteksi. Coba foto yang lebih jelas atau dekatkan
+                      daun ke kamera.
                     </p>
                   ) : (
                     <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">

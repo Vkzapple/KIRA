@@ -1,12 +1,40 @@
 # KIRA ML Service (Flask)
 
-1. Taruh `kira_ml_model.joblib` di folder ini.
-2. `pip install -r requirements.txt`
-3. Salin `.env.example` ke `.env`, isi `ROBOFLOW_API_KEY`.
-4. Lokal: `python main.py` (port 8000). Produksi/Railway: `gunicorn main:app` (lihat `Procfile`, memakai `$PORT`).
+Service klasifikasi penyakit daun **cabai** (5 kelas: healthy, leaf curl, leaf spot,
+whitefly, yellowish). Dataset tomat tidak dipakai.
 
-Endpoint:
-- `GET /health` -> status + model Roboflow yang dipakai
-- `POST /analyze` (multipart `file`) -> `{width, height, results:[{box, class, confidence, detected, recommendation}]}`
+## Menjalankan
+
+1. Taruh `kira_ml_model.joblib` di folder ini (sudah disertakan).
+2. `pip install -r requirements.txt`
+3. Salin `.env.example` ke `.env`, isi `ROBOFLOW_API_KEY` (untuk deteksi box di `/analyze`).
+4. Lokal: `python main.py` (port 8000). Produksi/Railway: `gunicorn main:app`
+   (lihat `Procfile`, memakai `$PORT`).
+
+## Endpoint
+
+- `GET /health`
+  -> status, model Roboflow, daftar kelas ML, device.
+- `POST /predict` (multipart)
+  - `file` gambar, atau `image` (base64), atau `image_url`
+  - `boxes` (JSON array `[[x1,y1,x2,y2], ...]`, opsional)
+  - `labels` (JSON array label deteksi Roboflow, opsional)
+  -> `{width, height, results:[{box, class, confidence, detected, recommendation}]}`
+  - Tanpa `boxes`: seluruh gambar diklasifikasi.
+- `POST /analyze` (multipart `file`)
+  -> Roboflow deteksi box, lalu ML klasifikasi tiap crop.
+  Dipakai backend robot setelah snapshot masuk.
 
 Roboflow dipanggil dengan body **base64** (bukan JPEG mentah).
+Di `/predict`, Roboflow **tidak** dipanggil sama sekali; prediksi murni dari model ML.
+
+## Training ulang
+
+Dataset: `dhenyd/chili-plant-disease` (folder `train/val/test` + 5 kelas).
+
+```bash
+python train_chili.py --data-dir data/chili --out kira_ml_model.joblib --aug-per-image 4
+```
+
+Atau jalankan `kaggle_kernel/kira_ml.ipynb` di Kaggle (GPU). Notebook hanya memakai
+dataset cabai dan menyimpan bundle `{model, xgb, le, classes}`.

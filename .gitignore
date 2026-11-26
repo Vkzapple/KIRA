@@ -1,0 +1,7 @@
+ESP32CAMVision/build/
+
+# Python caches / local data
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+kira-ml-service/data/

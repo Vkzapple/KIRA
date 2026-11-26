@@ -1,3 +1,5 @@
+import type { PredictResult } from "./vision";
+
 export type ConnectionStatus =
   | "disconnected"
   | "connecting"
@@ -30,10 +32,12 @@ export interface PlantSnapshot {
   imageUrl: string;
   /** Waktu foto diambil, format ISO 8601 */
   capturedAt: string;
-  /** Class pemicu dari Roboflow di ESP32-CAM (mis. Tomato___Late_blight). */
+  /** Class hasil analisis ML (setelah backend memanggil ML service). */
   class?: string;
-  /** Confidence pemicu (0-1). */
+  /** Confidence hasil analisis ML (0-1). */
   confidence?: number;
+  /** Hasil analisis model ML yang dikirim backend bersama snapshot. */
+  analysis?: PredictResult;
 }
 
 /** Kondisi terakhir robot, dikirim ESP32 Dev tiap ~2 detik. */

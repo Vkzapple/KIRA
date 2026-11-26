@@ -152,12 +152,34 @@ npm run dev
 NEXT_PUBLIC_API_URL=http://localhost:8080
 NEXT_PUBLIC_MOCK_PASSWORD=kira123   # hanya untuk mode mock
 
-# Roboflow Workflows untuk halaman /ml-test (server-side, jangan pakai NEXT_PUBLIC_)
+# Roboflow Workflows: DETEKSI OBJEK saja (server-side, jangan pakai NEXT_PUBLIC_)
 ROBOFLOW_API_KEY=xxxxxxxxxxxxxxxx
 ROBOFLOW_WORKFLOW_URL=https://serverless.roboflow.com/evelly-khanza/workflows/leaf-detection-and-count-1795394058974
+
+# ML service untuk PREDIKSI penyakit cabai (server-side).
+ML_SERVICE_URL=http://localhost:8000
 ```
 
-Halaman **/ml-test** mengirim gambar (upload atau URL) ke route Next.js `/api/predict`, lalu route itu memanggil Roboflow Workflows dengan JSON. API key tidak pernah dikirim ke browser.
+Halaman **/ml-test** mengirim gambar (upload atau URL) ke route Next.js `/api/predict`.
+Route itu memakai Roboflow Workflows **hanya untuk mencari bounding box**, lalu mengirim
+gambar + box ke `ML_SERVICE_URL/predict`. Class penyakit, confidence, dan rekomendasi
+selalu berasal dari model ML, bukan dari class Roboflow. API key dan URL ML tidak pernah
+dikirim ke browser.
+
+### 4b. Menjalankan ML service (khusus cabai)
+
+```bash
+cd kira-ml-service
+pip install -r requirements.txt
+python main.py          # port 8000
+```
+
+Model `kira_ml_model.joblib` dilatih dari dataset cabai `dhenyd/chili-plant-disease`
+(5 kelas: healthy, leaf curl, leaf spot, whitefly, yellowish). Notebook training ada di
+`kaggle_kernel/kira_ml.ipynb`, dan versi script ada di `kira-ml-service/train_chili.py`.
+
+Backend memanggil `AI_SERVICE_URL/analyze` setelah foto dari ESP32-CAM tersimpan.
+Endpoint `POST /predict` dipakai frontend untuk klasifikasi per kotak deteksi.
 
 Buka <http://localhost:3000>, klik **Hubungkan robot**, masukkan `ROBOT_PASSWORD`.
 
@@ -366,11 +388,14 @@ Content-Type: application/json
 {"inputs":{"image":{"type":"base64","value":"<base64 JPEG>"}}}
 ```
 
-Route `kira-web/src/app/api/predict/route.ts` yang memanggil endpoint ini, jadi:
+Route `kira-web/src/app/api/predict/route.ts` memakai endpoint ini **hanya untuk deteksi
+objek**, lalu memanggil ML service:
 
 - API key dibaca dari `ROBOFLOW_API_KEY` di `.env.local` (server-side).
 - Upload file dikonversi ke base64; mengirim `imageUrl` akan memakai `{"type":"url"}`.
-- Respons workflow dinormalisasi menjadi `{ count, results: [{ box, class, confidence }] }`, sehingga kotak deteksi bisa digambar di canvas.
+- Box hasil Roboflow dikirim ke `ML_SERVICE_URL/predict` bersama gambar.
+- Class penyakit, confidence, dan rekomendasi berasal dari model ML cabai.
+- Kalau Roboflow gagal/tidak ada box, gambar tetap diklasifikasi utuh oleh ML.
 
 Kalau muncul `401 Unauthorized api_key ... not authorized for serverless inference`, buat API key baru di **Roboflow → Settings → API Keys** yang aktif untuk Serverless API, lalu restart `npm run dev`.
 
@@ -392,9 +417,11 @@ Kalau muncul `401 Unauthorized api_key ... not authorized for serverless inferen
 7. Saat Roboflow di ESP32-CAM menemukan target/anomali:
    - ESP32-CAM menyimpan JPEG, mengunggah ke backend (`POST /api/snapshots`),
    - backend menyimpan metadata (Supabase) dan menyiarkan event `snapshot` lewat WebSocket,
-   - beranda langsung menerima foto baru (tanpa refresh), lalu otomatis mengirimnya ke
-     `/api/predict` untuk dianalisis ulang dengan Roboflow Workflows,
-   - kotak deteksi, jumlah daun, confidence, dan rekomendasi tampil di kartu **Foto terakhir**.
+   - backend memanggil ML service (`AI_SERVICE_URL/analyze`) di background, lalu menyiarkan
+     snapshot yang sudah berisi `analysis`,
+   - beranda memakai hasil `analysis` dari backend; kalau belum ada, beranda memanggil
+     `/api/predict` (Roboflow deteksi + ML klasifikasi),
+   - kotak deteksi, class penyakit, confidence, dan rekomendasi tampil di kartu **Foto terakhir**.
      Analisis hanya berjalan sekali per foto; tombol **Ulangi** memaksa analisis ulang.
    - Kalau tab belum terhubung ke WebSocket, kartu tetap memeriksa `/api/snapshots/latest`
      tiap 15 detik sebagai cadangan.

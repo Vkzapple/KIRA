@@ -68,6 +68,30 @@ export default function PlantMonitorCard() {
   const analyze = useCallback(
     async (snap: PlantSnapshot, force = false) => {
       if (!API_URL) return;
+
+      // Backend sudah menganalisis foto ini lewat ML service; pakai hasilnya
+      // supaya tidak memanggil model dua kali.
+      const embedded = snap.analysis;
+      if (
+        !force &&
+        embedded &&
+        Array.isArray(embedded.results) &&
+        embedded.results.length > 0
+      ) {
+        // Batalkan hasil /api/predict yang mungkin masih berjalan.
+        requestSeqRef.current += 1;
+        analyzedIdRef.current = snap.id;
+        setAnalysis({
+          width: embedded.width,
+          height: embedded.height,
+          count: embedded.results.length,
+          results: embedded.results,
+        });
+        setAnalysisState("ready");
+        setAnalysisError(null);
+        return;
+      }
+
       if (!force && analyzedIdRef.current === snap.id) return;
 
       analyzedIdRef.current = snap.id;
@@ -114,7 +138,7 @@ export default function PlantMonitorCard() {
         analyzedIdRef.current = null;
         setAnalysisState("error");
         setAnalysisError(
-          err instanceof Error ? err.message : "Analisis Roboflow gagal."
+          err instanceof Error ? err.message : "Analisis model ML gagal."
         );
       }
     },
@@ -283,7 +307,7 @@ export default function PlantMonitorCard() {
         <div className="flex items-center justify-between gap-3">
           <span className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-cream/55">
             <ScanSearch className="size-3.5 text-gold" aria-hidden="true" />
-            Analisis Roboflow
+            Analisis Model ML
           </span>
 
           {analysisState === "ready" && (
@@ -319,7 +343,7 @@ export default function PlantMonitorCard() {
 
         {snapshot && analysisState === "analyzing" && (
           <p className="mt-2 text-sm text-cream/55">
-            Roboflow sedang menghitung objek pada foto ini…
+            Roboflow mendeteksi objek, model ML cabai mengklasifikasikan daun…
           </p>
         )}
 
@@ -333,7 +357,7 @@ export default function PlantMonitorCard() {
           <div className="mt-3 space-y-2">
             {analysis.results.length === 0 ? (
               <p className="text-sm text-cream/50">
-                Tidak ada objek yang lolos filter Roboflow.
+                Tidak ada objek yang terdeteksi pada foto ini.
               </p>
             ) : (
               <ul className="max-h-36 space-y-1.5 overflow-y-auto pr-1">

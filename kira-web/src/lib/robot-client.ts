@@ -105,6 +105,7 @@ type SnapshotPayload = {
   capturedAt?: string;
   class?: string;
   confidence?: number;
+  analysis?: unknown;
 };
 
 function toPlantSnapshot(data: SnapshotPayload): PlantSnapshot | null {
@@ -117,6 +118,7 @@ function toPlantSnapshot(data: SnapshotPayload): PlantSnapshot | null {
     class: data.class,
     confidence:
       typeof data.confidence === "number" ? data.confidence : undefined,
+    analysis: data.analysis as PlantSnapshot["analysis"],
   };
 }
 
