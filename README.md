@@ -5,7 +5,7 @@ Sistem pemantauan tanaman dan kendali robot:
 - **Website** (Next.js + TypeScript) untuk melihat foto/sensor dan mengirim perintah.
 - **Backend** (Go + chi) sebagai satu-satunya WebSocket hub, penyimpan riwayat, dan jembatan ke Supabase.
 - **ESP32 Dev** menggerakkan 3 servo lewat PCA9685, 2 motor lewat modul driver **L298N**, membaca soil moisture, mengirim telemetry.
-- **ESP32-CAM** memindai objek via Roboflow dan hanya menyimpan foto saat target terdeteksi.
+- **ESP32-CAM** memakai Roboflow **hanya untuk deteksi objek**; foto disimpan saat objek terdeteksi (atau capture manual), lalu penyakit diprediksi model ML KIRA.
 
 ```
                     ┌──────────────────────────────┐
@@ -324,10 +324,10 @@ Roboflow:
 
 ```cpp
 #define ROBOFLOW_API_KEY "xxxxxxxxxxxxxxxx"
-#define ROBOFLOW_MODEL   "nama-model"     // model ID, bukan nama project
-#define ROBOFLOW_VERSION "1"
-#define ROBOFLOW_CONF    "40"             // threshold 0-100
-#define TARGET_DEFAULT   "person"         // boleh "person,bottle"
+#define ROBOFLOW_MODEL   "leaf-uqpn1"     // model DETEKSI OBJEK, bukan penyakit
+#define ROBOFLOW_VERSION "3"
+#define ROBOFLOW_CONF    "30"             // threshold 0-100
+#define TARGET_DEFAULT   "*"              // "*" = semua objek; boleh "leaf"
 ```
 
 Perilaku scan:
@@ -501,7 +501,7 @@ Pesan tambahan:
 {"type":"preview","on":true,"fps":2}
 // CAM -> server
 {"type":"ai_result","id":7,"ok":true,"http":200,"ms":1234,"w":640,"h":480,"matched":true,
- "best":"Tomato___Late_blight","conf":0.8,"n":1,"target":"...",
+ "best":"leaf","conf":0.8,"n":1,"target":"*",
  "preds":[{"c":"...","cf":0.8,"x":320,"y":240,"w":100,"h":80,"t":true}]}
 {"type":"cam_log","msg":"..."}
 ```

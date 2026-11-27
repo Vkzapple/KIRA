@@ -43,7 +43,7 @@ const rangeStyle = (value: number): CSSProperties =>
 export default function ControllerPage() {
   const { status, send, telemetry } = useRobot();
   const [log, setLog] = useState<LogEntry[]>([]);
-  const [target, setTarget] = useState("person");
+  const [target, setTarget] = useState("*");
   const [aiArmed, setAiArmed] = useState(false);
   const [syncAngle, setSyncAngle] = useState(90);
   const [auxAngle, setAuxAngle] = useState(90);
@@ -469,22 +469,23 @@ export default function ControllerPage() {
                 </span>
               </div>
               <p className="mt-2 text-sm text-cream/60">
-                ESP32-CAM memindai objek secara berkala dan hanya menyimpan foto
-                saat objek target terdeteksi.
+                Roboflow hanya mendeteksi objek. Prediksi penyakit tetap dari model
+                ML KIRA. Foto disimpan saat objek terdeteksi, atau lewat tombol
+                Capture.
               </p>
 
               <label
                 htmlFor="ai-target"
                 className="mt-4 block text-sm font-medium text-cream/75"
               >
-                Objek target
+                Objek target (deteksi)
               </label>
               <input
                 id="ai-target"
                 type="text"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
-                placeholder="person, bottle"
+                placeholder="* (semua objek) atau leaf"
                 className="mt-1.5 w-full max-w-sm rounded-xl border border-white/10 bg-ink/60 px-3 py-2 text-sm text-cream outline-none transition-colors placeholder:text-cream/30 focus:border-gold/60"
               />
 
