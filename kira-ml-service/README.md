@@ -36,5 +36,23 @@ Dataset: `dhenyd/chili-plant-disease` (folder `train/val/test` + 5 kelas).
 python train_chili.py --data-dir data/chili --out kira_ml_model.joblib --aug-per-image 4
 ```
 
-Atau jalankan `kaggle_kernel/kira_ml.ipynb` di Kaggle (GPU). Notebook hanya memakai
-dataset cabai dan menyimpan bundle `{model, xgb, le, classes}`.
+Atau latih di **Kaggle (GPU)** memakai notebook `train_chili.ipynb` di folder ini.
+Notebook hanya memakai dataset cabai dan menyimpan bundle
+`{model, xgb, le, classes}`.
+
+Langkah Kaggle:
+
+1. **Create → Notebook**, lalu **File → Import Notebook** → upload
+   `kira-ml-service/train_chili.ipynb`.
+2. Panel kanan **Add Input** → cari **`chili-plant-disease`** (oleh `dhenyd`) → Add.
+3. **Session options → Accelerator → GPU T4 x2**, lalu **Run All**.
+4. Download `kira_ml_model.joblib` dari tab **Output**, timpa file di folder ini,
+   lalu redeploy service ML.
+
+Notebook juga bisa dites lokal (tanpa Kaggle):
+
+```powershell
+$env:KIRA_DATA_DIR="C:\path\ke\dataset-cabai"   # folder berisi train/val/test
+$env:KIRA_AUG_PER_IMAGE="4"
+python -m nbconvert --to notebook --execute kira-ml-service/train_chili.ipynb --output train_out.ipynb
+```
