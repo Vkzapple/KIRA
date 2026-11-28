@@ -306,7 +306,13 @@ Cara kalibrasi:
 2. Lihat baris `[SENSOR] soil raw=...`.
 3. Catat nilai kering dan basah, masukkan ke 2 define di atas.
 
-Board: **ESP32 Dev Module**. **Tidak ada dashboard/web server lokal di ESP32**; semua kontrol dan tampilan ada di website KIRA melalui backend.
+Board: **ESP32 Dev Module** (Partition Scheme: **Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS)** atau skema lain yang mendukung OTA).
+
+#### Web OTA Update (`ESP32DevController`)
+Setelah flash pertama lewat USB, firmware berikutnya bisa diunggah lewat browser:
+1. Pastikan ESP32 Dev terhubung ke WiFi (lihat IP di Serial Monitor, atau gunakan `http://esp32-dev.local/update`).
+2. Buka `http://<IP_ESP32>/update` di browser dan login (`OTA_USER` / `OTA_PASS`, default `admin` / `kira123`).
+3. Pilih file `.bin` hasil export (*Sketch → Export Compiled Binary* di Arduino IDE) lalu klik **Upload & Flash Firmware**. Motor otomatis berhenti sebelum proses flash dimulai.
 
 ### ESP32-CAM (`ESP32CAMVision.ino`)
 
