@@ -3,8 +3,8 @@
 
    Fungsi:
      1. PCA9685 (I2C) menggerakkan 3 servo:
-          CH0 + CH1 -> servo SINKRON (arah sama, bisa di-invert/di-offset)
-          CH2       -> servo TERPISAH (independen)
+          CH0, CH1, CH2 -> tiga servo yang masing-masing INDEPENDEN
+          (tiap kanal punya target sudut sendiri, tidak diselaraskan)
      2. Modul L298N (H-bridge) untuk 2 motor (kiri + kanan):
           Kanal A: ENA + IN1/IN2 -> motor kiri
           Kanal B: ENB + IN3/IN4 -> motor kanan
@@ -15,7 +15,7 @@
      5. Konek ke backend KIRA (Go) lewat WebSocket sebagai device:
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
         - kirim telemetry tiap 2 detik
-        - terima perintah: move, servo, probe, camera
+        - terima perintah: move, servo (ch0/ch1/ch2), probe, camera
      6. Web OTA update firmware lokal di http://<IP>/update (atau
         http://esp32-dev.local/update) untuk upload file .bin dari browser.
         Selain itu, semua tampilan dan kontrol tetap ada di website KIRA
@@ -50,12 +50,12 @@
 
 // ---- Backend KIRA ----
 // Isi IP/host laptop atau server tempat `kira-server` berjalan.
-#define BACKEND_HOST  "10.4.2.95"
+#define BACKEND_HOST  "10.4.0.88"
 #define BACKEND_PORT  8080
 #define DEVICE_TOKEN  "kira123"   // harus sama dengan .env backend
 #define DEVICE_ID     "kira-01-dev"
 #define DEVICE_NAME   "KIRA Dev"
-#define FIRMWARE_VER  "1.4.1"
+#define FIRMWARE_VER  "1.5.1"
 
 // ---- Web OTA Update ----
 // Akses di browser: http://<IP_ESP32>/update atau http://esp32-dev.local/update
@@ -72,19 +72,22 @@
 
 // ---- PCA9685 ----
 #define PCA_ADDR       0x40
-#define CH_SYNC_A      0
-#define CH_SYNC_B      1
-#define CH_AUX         2
+#define CH_SERVO0      0
+#define CH_SERVO1      1
+#define CH_SERVO2      2
 #define SERVO_FREQ     50
 #define SERVO_MIN_US   500
 #define SERVO_MAX_US   2500
 #define SERVO_HOME     90
 
-// Servo kedua bergerak bersama servo pertama.
-// Kalau mekaniknya kebalik, set SYNC_B_INVERT = true.
-#define SYNC_B_INVERT  false
-#define SYNC_B_OFFSET  0
-#define AUX_INVERT     false
+// Tiap servo dikontrol sendiri-sendiri. Kalau arah mekaniknya kebalik,
+// set SERVOx_INVERT = true; OFFSET menggeser sudut (derajat) untuk kalibrasi.
+#define SERVO0_INVERT  false
+#define SERVO0_OFFSET  0
+#define SERVO1_INVERT  false
+#define SERVO1_OFFSET  0
+#define SERVO2_INVERT  false
+#define SERVO2_OFFSET  0
 
 // Langkah perintah dari web (derajat)
 #define STEP_SERVO     5
@@ -135,8 +138,9 @@ bool otaRebootPending = false;
 uint32_t otaRebootAt = 0;
 bool mdnsStarted = false;
 
-float syncNow = SERVO_HOME, syncTarget = SERVO_HOME;
-float auxNow  = SERVO_HOME, auxTarget  = SERVO_HOME;
+float servo0Now = SERVO_HOME, servo0Target = SERVO_HOME;
+float servo1Now = SERVO_HOME, servo1Target = SERVO_HOME;
+float servo2Now = SERVO_HOME, servo2Target = SERVO_HOME;
 
 int soilRaw = 0;
 int soilPct = 0;
@@ -191,8 +195,9 @@ void setup() {
   pwm.setOscillatorFrequency(27000000);
   pwm.setPWMFreq(SERVO_FREQ);
   delay(10);
-  syncNow = syncTarget = SERVO_HOME;
-  auxNow  = auxTarget  = SERVO_HOME;
+  servo0Now = servo0Target = SERVO_HOME;
+  servo1Now = servo1Target = SERVO_HOME;
+  servo2Now = servo2Target = SERVO_HOME;
   applyAllServos();
 
   // Driver motor L298N
@@ -391,9 +396,23 @@ void setServoAngle(uint8_t ch, float deg, bool invert, int offset) {
 }
 
 void applyAllServos() {
-  setServoAngle(CH_SYNC_A, syncNow, false, 0);
-  setServoAngle(CH_SYNC_B, syncNow, SYNC_B_INVERT, SYNC_B_OFFSET);
-  setServoAngle(CH_AUX,    auxNow,  AUX_INVERT,    0);
+  setServoAngle(CH_SERVO0, servo0Now, SERVO0_INVERT, SERVO0_OFFSET);
+  setServoAngle(CH_SERVO1, servo1Now, SERVO1_INVERT, SERVO1_OFFSET);
+  setServoAngle(CH_SERVO2, servo2Now, SERVO2_INVERT, SERVO2_OFFSET);
+}
+
+// Gerakkan satu servo menuju targetnya (halus, maks. 2.5 derajat per 20 ms).
+// Mengembalikan true kalau sudutnya berubah.
+bool stepServo(float &now, float target) {
+  if (fabsf(target - now) > 0.05f) {
+    now += constrain(target - now, -2.5f, 2.5f);
+    return true;
+  }
+  if (now != target) {
+    now = target;
+    return true;
+  }
+  return false;
 }
 
 void updateServos() {
@@ -402,22 +421,9 @@ void updateServos() {
   last = millis();
 
   bool changed = false;
-
-  if (fabsf(syncTarget - syncNow) > 0.05f) {
-    syncNow += constrain(syncTarget - syncNow, -2.5f, 2.5f);
-    changed = true;
-  } else if (syncNow != syncTarget) {
-    syncNow = syncTarget;
-    changed = true;
-  }
-
-  if (fabsf(auxTarget - auxNow) > 0.05f) {
-    auxNow += constrain(auxTarget - auxNow, -2.5f, 2.5f);
-    changed = true;
-  } else if (auxNow != auxTarget) {
-    auxNow = auxTarget;
-    changed = true;
-  }
+  changed |= stepServo(servo0Now, servo0Target);
+  changed |= stepServo(servo1Now, servo1Target);
+  changed |= stepServo(servo2Now, servo2Target);
 
   if (changed) applyAllServos();
 }
@@ -580,8 +586,9 @@ void sendTelemetry(bool force) {
   d["distance"]    = distanceValid ? distanceCm : 0;
   d["distanceValid"] = distanceValid;
   d["obstacle"]    = obstacleNear;
-  d["sync"]        = (int)lroundf(syncNow);
-  d["aux"]         = (int)lroundf(auxNow);
+  d["ch0"]         = (int)lroundf(servo0Now);
+  d["ch1"]         = (int)lroundf(servo1Now);
+  d["ch2"]         = (int)lroundf(servo2Now);
   d["motorLeft"]      = motorLeftNow;
   d["motorRight"]     = motorRightNow;
   d["motorLeftTarget"]  = motorLeftTarget;
@@ -647,26 +654,32 @@ void handleCommand(const String &msg) {
   Serial.printf("[CMD] %s\n", msg.c_str());
 
   if (!strcmp(type, "servo")) {
-    if (!doc["sync"].isNull()) {
-      syncTarget = constrain(doc["sync"].as<float>(), 0.0f, 180.0f);
+    // Tiap kanal berdiri sendiri; hanya kanal yang ada di pesan yang diubah.
+    if (!doc["ch0"].isNull()) {
+      servo0Target = constrain(doc["ch0"].as<float>(), 0.0f, 180.0f);
     }
-    if (!doc["aux"].isNull()) {
-      auxTarget = constrain(doc["aux"].as<float>(), 0.0f, 180.0f);
+    if (!doc["ch1"].isNull()) {
+      servo1Target = constrain(doc["ch1"].as<float>(), 0.0f, 180.0f);
+    }
+    if (!doc["ch2"].isNull()) {
+      servo2Target = constrain(doc["ch2"].as<float>(), 0.0f, 180.0f);
     }
     return;
   }
 
+  // Probe tanah -> CH2.
   if (!strcmp(type, "probe")) {
     const char *dir = doc["dir"] | "";
-    if (!strcmp(dir, "up"))   auxTarget = constrain(auxTarget + STEP_SERVO, 0.0f, 180.0f);
-    if (!strcmp(dir, "down")) auxTarget = constrain(auxTarget - STEP_SERVO, 0.0f, 180.0f);
+    if (!strcmp(dir, "up"))   servo2Target = constrain(servo2Target + STEP_SERVO, 0.0f, 180.0f);
+    if (!strcmp(dir, "down")) servo2Target = constrain(servo2Target - STEP_SERVO, 0.0f, 180.0f);
     return;
   }
 
+  // Kamera kiri/kanan -> CH0 saja (CH1 hanya lewat perintah "servo" ch1).
   if (!strcmp(type, "camera")) {
     const char *dir = doc["dir"] | "";
-    if (!strcmp(dir, "right")) syncTarget = constrain(syncTarget + STEP_SERVO, 0.0f, 180.0f);
-    if (!strcmp(dir, "left"))  syncTarget = constrain(syncTarget - STEP_SERVO, 0.0f, 180.0f);
+    if (!strcmp(dir, "right")) servo0Target = constrain(servo0Target + STEP_SERVO, 0.0f, 180.0f);
+    if (!strcmp(dir, "left"))  servo0Target = constrain(servo0Target - STEP_SERVO, 0.0f, 180.0f);
     return;
   }
 
