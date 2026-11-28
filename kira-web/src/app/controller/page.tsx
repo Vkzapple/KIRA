@@ -37,6 +37,13 @@ interface LogEntry {
 /** Ambang "bahaya" HC-SR04 di firmware. */
 const OBSTACLE_CM = 20;
 
+/** Tiga servo PCA9685; tiap kanal dikontrol terpisah. */
+const SERVO_CHANNELS = [
+  { key: "ch0", index: 0, label: "Servo CH0" },
+  { key: "ch1", index: 1, label: "Servo CH1" },
+  { key: "ch2", index: 2, label: "Servo CH2" },
+] as const;
+
 const rangeStyle = (value: number): CSSProperties =>
   ({ "--range-progress": `${(value / 180) * 100}%` }) as CSSProperties;
 
@@ -45,8 +52,7 @@ export default function ControllerPage() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [target, setTarget] = useState("*");
   const [aiArmed, setAiArmed] = useState(false);
-  const [syncAngle, setSyncAngle] = useState(90);
-  const [auxAngle, setAuxAngle] = useState(90);
+  const [angles, setAngles] = useState<[number, number, number]>([90, 90, 90]);
   const lastMoveDir = useRef<MoveDir | null>(null);
   const lastMoveLogAt = useRef(0);
   const connected = status === "connected";
@@ -343,78 +349,56 @@ export default function ControllerPage() {
                     Kalibrasi servo
                   </h3>
                   <p className="mt-1 text-sm text-cream/60">
-                    Servo sinkron CH0+CH1 dan servo terpisah CH2 lewat PCA9685.
+                    Tiga servo CH0, CH1, dan CH2 lewat PCA9685, masing-masing dikontrol sendiri.
                     Kalibrasi dilakukan dari web, bukan dari halaman ESP32.
                   </p>
                 </div>
               </div>
 
-              <div className="mt-5 grid gap-5 sm:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="servo-sync"
-                    className="flex items-baseline justify-between text-sm font-medium text-cream/75"
-                  >
-                    Servo sinkron (CH0 + CH1)
-                    <span className="font-mono text-gold">{syncAngle}°</span>
-                  </label>
-                  <input
-                    id="servo-sync"
-                    type="range"
-                    min={0}
-                    max={180}
-                    step={1}
-                    value={syncAngle}
-                    onChange={(e) => setSyncAngle(Number(e.target.value))}
-                    onPointerUp={(e) =>
-                      dispatch({
-                        type: "servo",
-                        sync: Number(e.currentTarget.value),
-                      })
-                    }
-                    onKeyUp={(e) =>
-                      dispatch({
-                        type: "servo",
-                        sync: Number(e.currentTarget.value),
-                      })
-                    }
-                    style={rangeStyle(syncAngle)}
-                    className="mt-3 w-full cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="servo-aux"
-                    className="flex items-baseline justify-between text-sm font-medium text-cream/75"
-                  >
-                    Servo terpisah (CH2)
-                    <span className="font-mono text-gold">{auxAngle}°</span>
-                  </label>
-                  <input
-                    id="servo-aux"
-                    type="range"
-                    min={0}
-                    max={180}
-                    step={1}
-                    value={auxAngle}
-                    onChange={(e) => setAuxAngle(Number(e.target.value))}
-                    onPointerUp={(e) =>
-                      dispatch({
-                        type: "servo",
-                        aux: Number(e.currentTarget.value),
-                      })
-                    }
-                    onKeyUp={(e) =>
-                      dispatch({
-                        type: "servo",
-                        aux: Number(e.currentTarget.value),
-                      })
-                    }
-                    style={rangeStyle(auxAngle)}
-                    className="mt-3 w-full cursor-pointer"
-                  />
-                </div>
+              <div className="mt-5 grid gap-5 sm:grid-cols-3">
+                {SERVO_CHANNELS.map((ch) => (
+                  <div key={ch.key}>
+                    <label
+                      htmlFor={`servo-${ch.key}`}
+                      className="flex items-baseline justify-between text-sm font-medium text-cream/75"
+                    >
+                      {ch.label}
+                      <span className="font-mono text-gold">
+                        {angles[ch.index]}°
+                      </span>
+                    </label>
+                    <input
+                      id={`servo-${ch.key}`}
+                      type="range"
+                      min={0}
+                      max={180}
+                      step={1}
+                      value={angles[ch.index]}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setAngles((prev) => {
+                          const next: [number, number, number] = [...prev];
+                          next[ch.index] = v;
+                          return next;
+                        });
+                      }}
+                      onPointerUp={(e) =>
+                        dispatch({
+                          type: "servo",
+                          [ch.key]: Number(e.currentTarget.value),
+                        })
+                      }
+                      onKeyUp={(e) =>
+                        dispatch({
+                          type: "servo",
+                          [ch.key]: Number(e.currentTarget.value),
+                        })
+                      }
+                      style={rangeStyle(angles[ch.index])}
+                      className="mt-3 w-full cursor-pointer"
+                    />
+                  </div>
+                ))}
               </div>
             </section>
 

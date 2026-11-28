@@ -174,18 +174,24 @@ export default function SensorCard() {
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-4 border-t border-white/[0.07] pt-4 text-center text-xs text-cream/55 sm:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 gap-4 border-t border-white/[0.07] pt-4 text-center text-xs text-cream/55 sm:grid-cols-3 lg:grid-cols-6">
         <div>
           <div className="font-mono text-sm font-semibold text-cream">
-            {data ? `${data.sync}°` : "—"}
+            {data ? `${data.ch0}°` : "—"}
           </div>
-          Servo utama
+          Servo CH0
         </div>
         <div>
           <div className="font-mono text-sm font-semibold text-cream">
-            {data ? `${data.aux}°` : "—"}
+            {data ? `${data.ch1}°` : "—"}
           </div>
-          Servo aux
+          Servo CH1
+        </div>
+        <div>
+          <div className="font-mono text-sm font-semibold text-cream">
+            {data ? `${data.ch2}°` : "—"}
+          </div>
+          Servo CH2
         </div>
         <div>
           <div className="font-mono text-sm font-semibold text-cream">

@@ -37,7 +37,12 @@ export function describeCommand(cmd: RobotCommand): string {
     case "camera":
       return cmd.dir === "left" ? "Kamera: putar kiri" : "Kamera: putar kanan";
     case "servo":
-      return `Servo: utama ${cmd.sync ?? "-"}°, aux ${cmd.aux ?? "-"}°`;
+      const parts = [
+        cmd.ch0 != null ? `CH0 ${cmd.ch0}°` : null,
+        cmd.ch1 != null ? `CH1 ${cmd.ch1}°` : null,
+        cmd.ch2 != null ? `CH2 ${cmd.ch2}°` : null,
+      ].filter(Boolean);
+      return `Servo: ${parts.join(", ") || "-"}`;
     case "ai":
       return cmd.armed
         ? `Vision AI: aktif${cmd.target ? ` (${cmd.target})` : ""}`

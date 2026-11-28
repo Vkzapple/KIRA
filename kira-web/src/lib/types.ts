@@ -14,7 +14,7 @@ export type RobotCommand =
   | { type: "move"; dir: MoveDir; speed?: number }
   | { type: "probe"; dir: ProbeDir }
   | { type: "camera"; dir: CameraDir }
-  | { type: "servo"; sync?: number; aux?: number }
+  | { type: "servo"; ch0?: number; ch1?: number; ch2?: number }
   | { type: "ai"; armed: boolean; target?: string }
   | { type: "capture" }
   | { type: "power"; on: boolean }
@@ -50,10 +50,12 @@ export interface RobotTelemetry {
   distanceValid?: boolean;
   /** true bila objek lebih dekat dari ambang firmware (default 20 cm). */
   obstacle?: boolean;
-  /** Sudut servo CH0+CH1 (bergerak bersamaan). */
-  sync: number;
+  /** Sudut servo CH0 (independen). */
+  ch0: number;
+  /** Sudut servo CH1 (independen). */
+  ch1: number;
   /** Sudut servo CH2 (independen). */
-  aux: number;
+  ch2: number;
   /** Duty motor L298N kiri: positif maju, negatif mundur, 0 berhenti. */
   motor?: number;
   /** Target duty yang sedang dituju motor kiri. */
