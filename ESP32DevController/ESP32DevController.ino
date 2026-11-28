@@ -16,19 +16,27 @@
           ws://<server>:8080/ws/device?token=<DEVICE_TOKEN>
         - kirim telemetry tiap 2 detik
         - terima perintah: move, servo (ch0/ch1/ch2), probe, camera
-     6. Tidak ada dashboard/server HTTP di ESP32. Semua tampilan dan
-        kontrol ada di website KIRA lewat backend.
+     6. Web OTA update firmware lokal di http://<IP>/update (atau
+        http://esp32-dev.local/update) untuk upload file .bin dari browser.
+        Selain itu, semua tampilan dan kontrol tetap ada di website KIRA
+        lewat backend.
      7. ESP32-CAM konek sendiri ke backend yang sama (lihat sketch CAM)
 
    Library (Library Manager):
      - Adafruit PWM Servo Driver Library  (otomatis tarik Adafruit BusIO)
      - ArduinoJson 7.x
      - WebSockets  (Markus Sattler / Links2004)
+     (WebServer, Update, ESPmDNS sudah bawaan core ESP32)
 
    Board: "ESP32 Dev Module"
+     - Partition Scheme: Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS)
+       atau skema lain yang mendukung OTA.
    ===================================================================== */
 
 #include <WiFi.h>
+#include <WebServer.h>
+#include <Update.h>
+#include <ESPmDNS.h>
 #include <WebSocketsClient.h>
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
@@ -47,7 +55,13 @@
 #define DEVICE_TOKEN  "kira123"   // harus sama dengan .env backend
 #define DEVICE_ID     "kira-01-dev"
 #define DEVICE_NAME   "KIRA Dev"
-#define FIRMWARE_VER  "1.5.0"
+#define FIRMWARE_VER  "1.5.1"
+
+// ---- Web OTA Update ----
+// Akses di browser: http://<IP_ESP32>/update atau http://esp32-dev.local/update
+#define OTA_PORT      80
+#define OTA_USER      "admin"
+#define OTA_PASS      "kira123"   // ganti sesuai kebutuhan
 
 // ---- Pin ----
 #define PIN_SDA      21
@@ -117,6 +131,12 @@
 
 Adafruit_PWMServoDriver pwm(PCA_ADDR);
 WebSocketsClient  backend;
+WebServer         otaServer(OTA_PORT);
+
+bool otaInProgress = false;
+bool otaRebootPending = false;
+uint32_t otaRebootAt = 0;
+bool mdnsStarted = false;
 
 float servo0Now = SERVO_HOME, servo0Target = SERVO_HOME;
 float servo1Now = SERVO_HOME, servo1Target = SERVO_HOME;
@@ -158,6 +178,8 @@ void handleCommand(const String &msg);
 void sendHello();
 void sendTelemetry(bool force = false);
 void startBackend();
+void startOtaServer();
+void ensureMdns();
 
 /* ============================== SETUP =============================== */
 
@@ -207,9 +229,13 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print(F("IP: "));
     Serial.println(WiFi.localIP());
+    ensureMdns();
   } else {
     Serial.println(F("WiFi gagal, lanjut (auto reconnect aktif)"));
   }
+
+  // Web OTA server (http://<IP>/update)
+  startOtaServer();
 
   // Backend WebSocket (satu-satunya jalur kontrol & telemetry)
   startBackend();
@@ -222,6 +248,19 @@ void setup() {
 /* =============================== LOOP =============================== */
 
 void loop() {
+  otaServer.handleClient();
+
+  if (otaRebootPending && (int32_t)(millis() - otaRebootAt) >= 0) {
+    Serial.println(F("[OTA] Rebooting..."));
+    delay(50);
+    ESP.restart();
+  }
+
+  if (otaInProgress) {
+    delay(1);
+    return;
+  }
+
   backend.loop();
   readSensors();
   readUltrasonic();
@@ -232,11 +271,14 @@ void loop() {
   // WiFi reconnect manual kalau perlu
   static uint32_t lastWifiCheck = 0;
   if (WiFi.status() != WL_CONNECTED) {
+    mdnsStarted = false;
     stopMotor();   // jangan tinggalkan motor berputar saat jaringan putus
     if (millis() - lastWifiCheck > 5000) {
       lastWifiCheck = millis();
       WiFi.reconnect();
     }
+  } else {
+    ensureMdns();
   }
 
   delay(2);
@@ -670,4 +712,210 @@ void handleCommand(const String &msg) {
   if (!strcmp(type, "hello_ack") || !strcmp(type, "pong")) return;
 
   Serial.printf("[CMD] tipe tidak dikenal: %s\n", type);
+}
+
+/* ============================== WEB OTA ============================= */
+
+static const char OTA_HTML[] PROGMEM = R"rawliteral(
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>KIRA Dev — Firmware OTA</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a; color: #e2e8f0;
+      display: grid; place-items: center; min-height: 100vh; padding: 16px;
+    }
+    .card {
+      width: 100%; max-width: 440px; background: #1e293b;
+      border: 1px solid #334155; border-radius: 14px; padding: 24px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.35);
+    }
+    h1 { margin: 0 0 6px; font-size: 1.25rem; }
+    .sub { color: #94a3b8; font-size: .875rem; margin-bottom: 18px; }
+    .meta {
+      background: #0f172a; border: 1px solid #334155; border-radius: 10px;
+      padding: 12px; font-size: .82rem; line-height: 1.6; margin-bottom: 18px;
+    }
+    .meta b { color: #38bdf8; }
+    input[type=file] {
+      width: 100%; box-sizing: border-box; padding: 10px;
+      background: #0f172a; border: 1px dashed #475569; border-radius: 10px;
+      color: #cbd5e1; margin-bottom: 14px;
+    }
+    button {
+      width: 100%; padding: 11px 16px; border: 0; border-radius: 10px;
+      background: #0284c7; color: #fff; font-weight: 600; font-size: .95rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .bar-wrap {
+      margin-top: 14px; height: 10px; background: #0f172a;
+      border-radius: 999px; overflow: hidden; display: none;
+    }
+    .bar { height: 100%; width: 0%; background: #22c55e; transition: width .15s; }
+    .status { margin-top: 10px; font-size: .85rem; color: #cbd5e1; min-height: 1.2em; }
+    .err { color: #f87171; }
+    .ok  { color: #4ade80; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>KIRA Dev — Web OTA</h1>
+    <div class="sub">Upload file firmware <code>.bin</code> untuk update nirkabel.</div>
+    <div class="meta">
+      <div>Device: <b>%DEVICE_NAME%</b> (<code>%DEVICE_ID%</code>)</div>
+      <div>Firmware: <b>%FW_VER%</b> &middot; IP: <b>%IP%</b></div>
+      <div>Free Heap: <b>%HEAP%</b> KB &middot; Free Sketch: <b>%SKETCH_FREE%</b> KB</div>
+    </div>
+    <form id="otaForm">
+      <input id="fileInput" type="file" name="firmware" accept=".bin" required>
+      <button id="uploadBtn" type="submit">Upload &amp; Flash Firmware</button>
+    </form>
+    <div class="bar-wrap" id="barWrap"><div class="bar" id="bar"></div></div>
+    <div class="status" id="status"></div>
+  </div>
+  <script>
+    const form = document.getElementById('otaForm');
+    const fileInput = document.getElementById('fileInput');
+    const btn = document.getElementById('uploadBtn');
+    const barWrap = document.getElementById('barWrap');
+    const bar = document.getElementById('bar');
+    const statusEl = document.getElementById('status');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      btn.disabled = true;
+      barWrap.style.display = 'block';
+      bar.style.width = '0%';
+      statusEl.className = 'status';
+      statusEl.textContent = 'Mengunggah firmware...';
+
+      const fd = new FormData();
+      fd.append('firmware', file, file.name);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/update', true);
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) {
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          bar.style.width = pct + '%';
+          statusEl.textContent = 'Uploading: ' + pct + '%';
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          bar.style.width = '100%';
+          statusEl.className = 'status ok';
+          statusEl.textContent = 'Update berhasil! ESP32 reboot, memuat ulang dalam 6 detik...';
+          setTimeout(() => location.reload(), 6000);
+        } else {
+          btn.disabled = false;
+          statusEl.className = 'status err';
+          statusEl.textContent = 'Gagal (' + xhr.status + '): ' + xhr.responseText;
+        }
+      };
+      xhr.onerror = () => {
+        btn.disabled = false;
+        statusEl.className = 'status err';
+        statusEl.textContent = 'Koneksi terputus saat upload.';
+      };
+      xhr.send(fd);
+    });
+  </script>
+</body>
+</html>
+)rawliteral";
+
+bool checkOtaAuth() {
+  if (strlen(OTA_USER) == 0 && strlen(OTA_PASS) == 0) return true;
+  if (!otaServer.authenticate(OTA_USER, OTA_PASS)) {
+    otaServer.requestAuthentication();
+    return false;
+  }
+  return true;
+}
+
+void ensureMdns() {
+  if (mdnsStarted || WiFi.status() != WL_CONNECTED) return;
+  if (MDNS.begin("esp32-dev")) {
+    MDNS.addService("http", "tcp", OTA_PORT);
+    mdnsStarted = true;
+    Serial.printf("[OTA] mDNS aktif: http://esp32-dev.local/update\n");
+  }
+}
+
+void startOtaServer() {
+  otaServer.on("/", HTTP_GET, []() {
+    otaServer.sendHeader("Location", "/update");
+    otaServer.send(302, "text/plain", "");
+  });
+
+  otaServer.on("/update", HTTP_GET, []() {
+    if (!checkOtaAuth()) return;
+    String html = FPSTR(OTA_HTML);
+    html.replace("%DEVICE_NAME%", DEVICE_NAME);
+    html.replace("%DEVICE_ID%", DEVICE_ID);
+    html.replace("%FW_VER%", FIRMWARE_VER);
+    html.replace("%IP%", WiFi.localIP().toString());
+    html.replace("%HEAP%", String(ESP.getFreeHeap() / 1024));
+    html.replace("%SKETCH_FREE%", String(ESP.getFreeSketchSpace() / 1024));
+    otaServer.send(200, "text/html", html);
+  });
+
+  otaServer.on(
+      "/update", HTTP_POST,
+      []() {
+        if (!checkOtaAuth()) return;
+        bool ok = !Update.hasError();
+        otaInProgress = false;
+        if (ok) {
+          otaServer.send(200, "text/plain", "OK");
+          otaRebootPending = true;
+          otaRebootAt = millis() + 500;
+        } else {
+          otaServer.send(500, "text/plain", Update.errorString());
+        }
+      },
+      []() {
+        if ((strlen(OTA_USER) > 0 || strlen(OTA_PASS) > 0) &&
+            !otaServer.authenticate(OTA_USER, OTA_PASS)) {
+          return;
+        }
+        HTTPUpload &upload = otaServer.upload();
+
+        if (upload.status == UPLOAD_FILE_START) {
+          otaInProgress = true;
+          stopMotor();   // amankan motor sebelum menulis flash
+          Serial.printf("[OTA] Mulai update: %s\n", upload.filename.c_str());
+          if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            Update.printError(Serial);
+          }
+        } else if (upload.status == UPLOAD_FILE_WRITE) {
+          if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            Update.printError(Serial);
+          }
+        } else if (upload.status == UPLOAD_FILE_END) {
+          if (Update.end(true)) {
+            Serial.printf("[OTA] Sukses: %u bytes\n", upload.totalSize);
+          } else {
+            Update.printError(Serial);
+          }
+        } else if (upload.status == UPLOAD_FILE_ABORTED) {
+          Update.abort();
+          otaInProgress = false;
+          Serial.println(F("[OTA] Upload dibatalkan"));
+        }
+      });
+
+  otaServer.begin();
+  Serial.printf("[OTA] Web OTA siap di http://%s/update (port %d)\n",
+                WiFi.localIP().toString().c_str(), OTA_PORT);
 }
