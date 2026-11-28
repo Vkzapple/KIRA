@@ -10,8 +10,9 @@ type Telemetry struct {
 	Distance         int       `json:"distance"`
 	DistanceValid    bool      `json:"distanceValid"`
 	Obstacle         bool      `json:"obstacle"`
-	Sync             int       `json:"sync"`
-	Aux              int       `json:"aux"`
+	Ch0              int       `json:"ch0"`
+	Ch1              int       `json:"ch1"`
+	Ch2              int       `json:"ch2"`
 	Motor            int       `json:"motor"`
 	MotorTarget      int       `json:"motorTarget,omitempty"`
 	MotorLeft        int       `json:"motorLeft"`

@@ -42,8 +42,9 @@ type telemetryRow struct {
 	DistanceCm       int    `json:"distance_cm"`
 	DistanceValid    bool   `json:"distance_valid"`
 	Obstacle         bool   `json:"obstacle"`
-	SyncAngle        int    `json:"sync_angle"`
-	AuxAngle         int    `json:"aux_angle"`
+	Ch0Angle         int    `json:"ch0_angle"`
+	Ch1Angle         int    `json:"ch1_angle"`
+	Ch2Angle         int    `json:"ch2_angle"`
 	Motor            int    `json:"motor"`
 	MotorTarget      int    `json:"motor_target,omitempty"`
 	MotorLeft        int    `json:"motor_left"`
@@ -92,8 +93,9 @@ func (s *Supabase) SaveTelemetry(ctx context.Context, t model.Telemetry) error {
 		DistanceCm:       t.Distance,
 		DistanceValid:    t.DistanceValid,
 		Obstacle:         t.Obstacle,
-		SyncAngle:        t.Sync,
-		AuxAngle:         t.Aux,
+		Ch0Angle:         t.Ch0,
+		Ch1Angle:         t.Ch1,
+		Ch2Angle:         t.Ch2,
 		Motor:            t.Motor,
 		MotorTarget:      t.MotorTarget,
 		MotorLeft:        t.MotorLeft,
@@ -233,7 +235,7 @@ func (s *Supabase) ListTelemetry(ctx context.Context, limit int) ([]model.Teleme
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	q := "/rest/v1/telemetry?select=device_id,soil_pct,soil_raw,distance_cm,distance_valid,obstacle,sync_angle,aux_angle,motor,motor_target,motor_left,motor_right,motor_left_target,motor_right_target,cam_online,cam_armed,cam_busy,cam_target,rssi,uptime_s,created_at&order=created_at.desc&limit=" + fmt.Sprint(limit)
+	q := "/rest/v1/telemetry?select=device_id,soil_pct,soil_raw,distance_cm,distance_valid,obstacle,ch0_angle,ch1_angle,ch2_angle,motor,motor_target,motor_left,motor_right,motor_left_target,motor_right_target,cam_online,cam_armed,cam_busy,cam_target,rssi,uptime_s,created_at&order=created_at.desc&limit=" + fmt.Sprint(limit)
 	body, err := s.get(ctx, q)
 	if err != nil {
 		return nil, err
@@ -251,8 +253,9 @@ func (s *Supabase) ListTelemetry(ctx context.Context, limit int) ([]model.Teleme
 			Distance:         r.DistanceCm,
 			DistanceValid:    r.DistanceValid,
 			Obstacle:         r.Obstacle,
-			Sync:             r.SyncAngle,
-			Aux:              r.AuxAngle,
+			Ch0:              r.Ch0Angle,
+			Ch1:              r.Ch1Angle,
+			Ch2:              r.Ch2Angle,
 			Motor:            r.Motor,
 			MotorTarget:      r.MotorTarget,
 			MotorLeft:        r.MotorLeft,

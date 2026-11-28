@@ -29,7 +29,7 @@ Password untuk masuk ke robot diatur di backend (`ROBOT_PASSWORD`, default `kira
 ## Fitur
 
 - **Beranda**: status koneksi, tombol Hubungkan robot (popup password), foto terakhir robot, dan kartu kondisi kebun (soil moisture, driver 2 motor L298N, status kamera) yang diperbarui tiap 5 detik.
-- **Controller** (terkunci sampai robot terhubung): tuas analog untuk maju/mundur dan belok kiri/kanan (pivot) dengan kecepatan proporsional yang posisinya terkunci (motor terus berjalan sampai tombol **Berhenti** ditekan; 2 motor L298N), kalibrasi servo PCA9685 (servo sinkron CH0+CH1 dan servo terpisah CH2), servo probe tanah (angkat/turunkan), servo kamera (kiri/kanan), kontrol **Vision AI** (target + mulai/hentikan + foto & analisis sekarang), riwayat perintah.
+- **Controller** (terkunci sampai robot terhubung): tuas analog untuk maju/mundur dan belok kiri/kanan (pivot) dengan kecepatan proporsional yang posisinya terkunci (motor terus berjalan sampai tombol **Berhenti** ditekan; 2 motor L298N), kalibrasi servo PCA9685 (tiga servo CH0, CH1, CH2 yang masing-masing dikontrol terpisah), servo probe tanah (angkat/turunkan), servo kamera (kiri/kanan), kontrol **Vision AI** (target + mulai/hentikan + foto & analisis sekarang), riwayat perintah.
 
 ## Struktur
 
@@ -71,7 +71,7 @@ Foto terakhir diambil dari endpoint publik `GET /api/snapshots/latest`, jadi kar
 { type: "move", dir: "forward" | "backward" | "left" | "right" | "stop", speed?: number }
 { type: "probe", dir: "up" | "down" }
 { type: "camera", dir: "left" | "right" }
-{ type: "servo", sync?: number, aux?: number }
+{ type: "servo", ch0?: number, ch1?: number, ch2?: number }
 { type: "ai", armed: boolean, target?: string }
 { type: "capture" }
 ```

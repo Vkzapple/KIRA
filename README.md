@@ -223,11 +223,12 @@ Board package: **esp32 by Espressif** (2.0.14+ atau 3.x). `esp32-camera` sudah t
 
 - Pakai adaptor 5V minimal 2–3 A kalau 3 servo SG90 bergerak bersamaan.
 - Semua GND (ESP32, PCA9685, adaptor servo) **harus disatukan**.
-- Kalau servo CH1 bergerak kebalik karena posisi mekanik:
+- CH0, CH1, CH2 dikontrol **terpisah** (tidak diselaraskan). Kalau salah satu servo
+  bergerak kebalik karena posisi mekanik, atur per kanal:
 
 ```cpp
-#define SYNC_B_INVERT  true     // balik arah servo CH1
-#define SYNC_B_OFFSET  0        // geser sudut (derajat), misal 5
+#define SERVO1_INVERT  true     // balik arah servo CH1
+#define SERVO1_OFFSET  0        // geser sudut (derajat), misal 5
 ```
 
 ### Modul L298N = driver 2 motor DC
@@ -416,7 +417,7 @@ Kalau muncul `401 Unauthorized api_key ... not authorized for serverless inferen
 5. Beranda menampilkan foto terakhir + kondisi kebun (soil moisture, status driver motor L298N, status kamera).
 6. Buka **Controller**:
    - tuas analog untuk maju/mundur dan belok kiri/kanan (pivot) dengan kecepatan proporsional (semakin jauh digeser, semakin cepat). Posisi tuas terkunci: motor terus berjalan sampai tombol **Berhenti** ditekan,
-   - slider servo PCA9685 untuk kalibrasi (servo sinkron CH0+CH1 dan servo terpisah CH2),
+   - slider servo PCA9685 untuk kalibrasi (tiga servo CH0, CH1, CH2 yang masing-masing terpisah),
    - probe tanah naik/turun,
    - servo kamera kiri/kanan,
    - **Vision AI**: isi target, klik **Mulai pantau**, atau **Foto + AI sekarang** untuk satu kali scan.
@@ -443,7 +444,7 @@ Kalau muncul `401 Unauthorized api_key ... not authorized for serverless inferen
 {"type":"move","dir":"forward","speed":180,"id":"...","ts":123}
 {"type":"probe","dir":"down"}
 {"type":"camera","dir":"left"}
-{"type":"servo","sync":120,"aux":45}
+{"type":"servo","ch0":120,"ch1":60,"ch2":45}
 {"type":"ai","armed":true,"target":"person"}
 {"type":"capture"}
 ```
@@ -465,7 +466,7 @@ Server membalas `{"type":"ack","id":"...","forwarded":true}` atau `{"type":"erro
 ```json
 {"type":"hello","deviceId":"kira-01-dev","kind":"esp32dev","firmware":"1.3.0","ip":"192.168.1.50"}
 {"type":"telemetry","soil":48,"soilRaw":1980,"distance":35,"distanceValid":true,"obstacle":false,
- "sync":90,"aux":90,
+ "ch0":90,"ch1":90,"ch2":90,
  "motor":180,"motorTarget":180,"motorLeft":180,"motorRight":180,
  "motorLeftTarget":180,"motorRightTarget":180,"rssi":-55,"uptime":300}
 {"type":"ai_status","armed":true,"busy":false,"target":"person"}

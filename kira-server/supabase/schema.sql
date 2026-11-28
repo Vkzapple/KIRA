@@ -29,8 +29,9 @@ create table if not exists public.telemetry (
   distance_cm  int,
   distance_valid boolean not null default false,
   obstacle     boolean not null default false,
-  sync_angle   int,
-  aux_angle    int,
+  ch0_angle    int,
+  ch1_angle    int,
+  ch2_angle    int,
   motor        int,
   motor_target int,
   motor_left   int,
@@ -58,6 +59,25 @@ alter table public.telemetry add column if not exists motor_left int;
 alter table public.telemetry add column if not exists motor_right int;
 alter table public.telemetry add column if not exists motor_left_target int;
 alter table public.telemetry add column if not exists motor_right_target int;
+
+-- Migrasi servo: CH0, CH1, CH2 sekarang independen.
+-- sync_angle (CH0+CH1) -> ch0_angle, aux_angle (CH2) -> ch2_angle.
+alter table public.telemetry add column if not exists ch0_angle int;
+alter table public.telemetry add column if not exists ch1_angle int;
+alter table public.telemetry add column if not exists ch2_angle int;
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'telemetry'
+               and column_name = 'sync_angle') then
+    update public.telemetry
+       set ch0_angle = coalesce(ch0_angle, sync_angle),
+           ch1_angle = coalesce(ch1_angle, sync_angle),
+           ch2_angle = coalesce(ch2_angle, aux_angle);
+    alter table public.telemetry drop column sync_angle;
+    alter table public.telemetry drop column aux_angle;
+  end if;
+end $$;
 
 -- Migrasi kolom sensor ultrasonik HC-SR04 (deteksi objek di depan).
 alter table public.telemetry add column if not exists distance_cm int;
